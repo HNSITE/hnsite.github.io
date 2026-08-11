@@ -1,7 +1,7 @@
-// Firebase Storage를 활성화할 때 그대로 사용하는 이미지 사용량 제한 정책입니다.
-// 현재 버전에서는 Storage 업로드는 연결하지 않고 정책과 압축 함수만 준비합니다.
+// Active bingo image compression policy.
 export const BINGO_IMAGE_POLICY = Object.freeze({
   maxStoredBytes: 2 * 1024 * 1024,
+  maxSourceBytes: 25 * 1024 * 1024,
   targetBytes: 1 * 1024 * 1024,
   maxWidth: 1920,
   maxHeight: 1920,
@@ -37,6 +37,10 @@ function canvasToBlob(canvas, type, quality) {
 export async function compressBingoImage(file) {
   if (!file?.type?.startsWith("image/")) {
     throw new Error("이미지 파일만 선택할 수 있습니다.");
+  }
+
+  if (file.size > BINGO_IMAGE_POLICY.maxSourceBytes) {
+    throw new Error("원본 사진은 25MB 이하만 선택할 수 있습니다.");
   }
 
   const image = await loadImage(file);

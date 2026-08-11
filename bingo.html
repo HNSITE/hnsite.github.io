@@ -17,7 +17,7 @@
     })();
   </script>
   <title>빙고 | CHURANG</title>
-  <link rel="stylesheet" href="./assets/styles.css?v=6" />
+  <link rel="stylesheet" href="./assets/styles.css?v=7" />
 </head>
 <body class="app-page">
   <header class="topbar app-topbar">
@@ -98,9 +98,9 @@
           <div class="image-policy-box">
             <div>
               <strong>빙고 사진</strong>
-              <p>사진 저장 기능은 Firebase Storage 요금제 변경 후 연결합니다.</p>
+              <p id="imageUploadStatus">사진을 선택하면 빙고판 생성 시 자동으로 WebP 압축 후 업로드합니다.</p>
             </div>
-            <input id="roomImage" type="file" accept="image/*" disabled />
+            <input id="roomImage" type="file" accept="image/*" />
             <ul>
               <li>방당 사진 1장만 저장</li>
               <li>업로드 전 자동 리사이즈·압축</li>
@@ -138,6 +138,6 @@
     </div>
   </main>
 
-  <script type="module" src="./js/bingo.js?v=6"></script>
+  <script type="module" src="./js/bingo.js?v=7"></script>
 </body>
 </html>

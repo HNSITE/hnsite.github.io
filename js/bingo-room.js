@@ -1,4 +1,4 @@
-import { auth, db } from "./firebase-config.js";
+import { auth, db, storage } from "./firebase-config.js?v=7";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
 import {
   deleteDoc,
@@ -10,9 +10,15 @@ import {
   serverTimestamp,
   updateDoc
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+import {
+  deleteObject,
+  getDownloadURL,
+  ref as storageRef
+} from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
 
 const params = new URLSearchParams(location.search);
 const roomId = params.get("id");
+const boardImageRef = roomId ? storageRef(storage, `bingoImages/${roomId}/board.webp`) : null;
 
 const loadingPanel = document.getElementById("loadingPanel");
 const roomContent = document.getElementById("roomContent");
@@ -93,12 +99,26 @@ async function loadRoomAndMembership() {
   boardData = boardSnap.data();
 }
 
+
+async function loadBoardImage() {
+  boardImageUrl = "";
+  if (!boardImageRef) return;
+
+  try {
+    boardImageUrl = await getDownloadURL(boardImageRef);
+  } catch (error) {
+    if (error?.code === "storage/object-not-found") return;
+    console.error(error);
+    setMessage("빙고 사진을 불러오지 못했습니다. 체크 상태는 계속 사용할 수 있습니다.");
+  }
+}
+
 function renderRoomHeader() {
   document.getElementById("roomTitle").textContent = roomData.name || "빙고";
   document.getElementById("roomMeta").textContent = `${roomData.size} × ${roomData.size} · 방장 ${roomData.ownerName || "-"}`;
   document.getElementById("boardPermission").textContent = access === "write" ? "쓰기" : "읽기";
   document.getElementById("boardHelp").textContent = access === "write"
-    ? "칸을 눌러 체크하거나 해제할 수 있습니다. 사진 기능을 연결하면 체크된 칸에 해당 사진 조각이 나타납니다."
+    ? "칸을 눌러 체크하거나 해제할 수 있습니다. 사진이 있는 방은 체크한 칸에 해당 사진 조각이 보입니다."
     : "읽기 권한입니다. 다른 사용자가 체크한 상태만 볼 수 있습니다.";
 
   roomActions.innerHTML = "";
@@ -303,8 +323,12 @@ async function deleteRoom() {
   setMessage("방을 삭제하고 있습니다...");
 
   try {
-    // Storage 활성화 후에는 이 단계의 가장 앞에서
-    // bingoImages/{roomId}/board.webp 파일을 먼저 삭제합니다.
+    try {
+      if (boardImageRef) await deleteObject(boardImageRef);
+    } catch (storageError) {
+      if (storageError?.code !== "storage/object-not-found") throw storageError;
+    }
+
     for (const uid of roomData.participantUids || []) {
       const membershipRef = doc(db, "bingoMemberships", uid);
       const membershipSnap = await getDoc(membershipRef);
@@ -394,6 +418,7 @@ onAuthStateChanged(auth, async (user) => {
     document.getElementById("roleBadge").textContent = roleLabel(currentProfile.role);
 
     await loadRoomAndMembership();
+    await loadBoardImage();
     renderRoomHeader();
     renderBoard();
 

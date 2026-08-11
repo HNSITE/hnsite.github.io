@@ -1,7 +1,8 @@
-import { auth, db } from "./firebase-config.js";
+import { auth, db, storage } from "./firebase-config.js?v=7";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -10,6 +11,12 @@ import {
   serverTimestamp,
   where
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+import {
+  deleteObject,
+  ref as storageRef,
+  uploadBytes
+} from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
+import { BINGO_IMAGE_POLICY, compressBingoImage } from "./image-policy.js?v=7";
 
 const loadingPanel = document.getElementById("loadingPanel");
 const bingoContent = document.getElementById("bingoContent");
@@ -20,6 +27,8 @@ const joinPanel = document.getElementById("joinPanel");
 const participantList = document.getElementById("participantList");
 const roomList = document.getElementById("roomList");
 const createRoomButton = document.getElementById("createRoomButton");
+const roomImage = document.getElementById("roomImage");
+const imageUploadStatus = document.getElementById("imageUploadStatus");
 
 let currentUser = null;
 let currentProfile = null;
@@ -283,6 +292,7 @@ async function createRoom(event) {
 
   const name = document.getElementById("roomName").value.trim();
   const size = Number(document.getElementById("roomSize").value);
+  const imageFile = roomImage.files?.[0] || null;
   const participantUids = [...document.querySelectorAll('input[name="participantUid"]:checked')]
     .map((item) => item.value);
 
@@ -298,13 +308,22 @@ async function createRoom(event) {
   }
 
   createRoomButton.disabled = true;
-  createRoomButton.textContent = "생성 중...";
-
   const roomRef = doc(collection(db, "bingoRooms"));
   const boardRef = doc(db, "bingoBoards", roomRef.id);
   const membershipRef = doc(db, "bingoMemberships", currentUser.uid);
+  const imageRef = storageRef(storage, `bingoImages/${roomRef.id}/${BINGO_IMAGE_POLICY.fixedFileName}`);
+  let roomCreated = false;
+  let compressedImage = null;
 
   try {
+    if (imageFile) {
+      createRoomButton.textContent = "사진 압축 중...";
+      imageUploadStatus.textContent = "사진을 WebP로 자동 압축하고 있습니다...";
+      compressedImage = await compressBingoImage(imageFile);
+      imageUploadStatus.textContent = `압축 완료: ${formatBytes(compressedImage.size)} (최대 2MB)`;
+    }
+
+    createRoomButton.textContent = "방 생성 중...";
     await runTransaction(db, async (transaction) => {
       const membershipSnap = await transaction.get(membershipRef);
       if (membershipSnap.exists()) throw new Error("ALREADY_IN_ROOM");
@@ -331,19 +350,51 @@ async function createRoom(event) {
         updatedAt: serverTimestamp()
       });
     });
+    roomCreated = true;
+
+    if (compressedImage) {
+      createRoomButton.textContent = "사진 업로드 중...";
+      await uploadBytes(imageRef, compressedImage, {
+        contentType: BINGO_IMAGE_POLICY.outputType,
+        cacheControl: "private,max-age=3600"
+      });
+      imageUploadStatus.textContent = "사진 업로드가 완료됐습니다.";
+    }
 
     location.href = `./bingo-room.html?id=${encodeURIComponent(roomRef.id)}`;
   } catch (error) {
     console.error(error);
+
+    if (roomCreated) {
+      try {
+        if (compressedImage) await deleteObject(imageRef);
+      } catch (cleanupError) {
+        if (cleanupError?.code !== "storage/object-not-found") console.error(cleanupError);
+      }
+      try { await deleteDoc(boardRef); } catch (cleanupError) { console.error(cleanupError); }
+      try { await deleteDoc(roomRef); } catch (cleanupError) { console.error(cleanupError); }
+      try { await deleteDoc(membershipRef); } catch (cleanupError) { console.error(cleanupError); }
+    }
+
     if (error.message === "ALREADY_IN_ROOM") {
       setMessage("이미 다른 빙고방에 참여 중입니다.");
+    } else if (error?.code?.startsWith?.("storage/")) {
+      setMessage("사진 업로드에 실패했습니다. Storage 규칙이 게시되었는지 확인해주세요.");
+    } else if (error.message) {
+      setMessage(error.message);
     } else {
-      setMessage("빙고방 생성에 실패했습니다. Firestore 규칙을 확인한 후 다시 시도해주세요.");
+      setMessage("빙고방 생성에 실패했습니다. 다시 시도해주세요.");
     }
   } finally {
     createRoomButton.disabled = false;
     createRoomButton.textContent = "빙고방 생성";
   }
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
 function escapeHtml(value) {
@@ -395,6 +446,21 @@ document.getElementById("refreshRoomsButton").addEventListener("click", async ()
     console.error(error);
     setMessage("방 목록을 새로고침하지 못했습니다.");
   }
+});
+
+
+roomImage.addEventListener("change", () => {
+  const file = roomImage.files?.[0];
+  if (!file) {
+    imageUploadStatus.textContent = "사진을 선택하면 빙고판 생성 시 자동으로 WebP 압축 후 업로드합니다.";
+    return;
+  }
+  if (!file.type?.startsWith("image/")) {
+    roomImage.value = "";
+    imageUploadStatus.textContent = "이미지 파일만 선택할 수 있습니다.";
+    return;
+  }
+  imageUploadStatus.textContent = `선택: ${file.name} (${formatBytes(file.size)}) · 방 생성 시 자동 압축`;
 });
 
 document.getElementById("createRoomForm").addEventListener("submit", createRoom);
