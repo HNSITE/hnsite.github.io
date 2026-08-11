@@ -16,7 +16,7 @@ import {
   getDownloadURL,
   ref as storageRef
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
-import { initUserManagementModal } from "./admin-modal.js?v=14";
+import { initUserManagementModal } from "./admin-modal.js?v=16";
 import { showConfirm, showNotice } from "./ui-dialog.js?v=14";
 
 const params = new URLSearchParams(location.search);

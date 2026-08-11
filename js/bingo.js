@@ -17,7 +17,7 @@ import {
   uploadBytes
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
 import { BINGO_IMAGE_POLICY, compressBingoImage } from "./image-policy.js?v=7";
-import { initUserManagementModal } from "./admin-modal.js?v=14";
+import { initUserManagementModal } from "./admin-modal.js?v=16";
 
 const loadingPanel = document.getElementById("loadingPanel");
 const bingoContent = document.getElementById("bingoContent");

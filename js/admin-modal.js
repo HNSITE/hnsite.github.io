@@ -1,21 +1,34 @@
 import { db } from "./firebase-config.js";
 import {
   collection,
+  deleteDoc,
   doc,
+  getDoc,
   getDocs,
   updateDoc
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 import { showConfirm, showNotice } from "./ui-dialog.js?v=14";
+
+const PAGE_SIZE = 10;
 
 let currentProfile = null;
 let allUsers = [];
 let activeTab = "pending";
 let initialized = false;
 
+const tabState = {
+  pending: { search: "", sortKey: "name", sortDir: "asc", page: 1 },
+  approved: { search: "", sortKey: "name", sortDir: "asc", page: 1 }
+};
+
 const accessLabel = (value) => ({ none: "권한 없음", read: "읽기", write: "쓰기" }[value] || "권한 없음");
 const roleLabel = (value) => ({ super_admin: "최고관리자", admin: "관리자", user: "일반사용자" }[value] || value);
 const statusLabel = (value) => ({ pending: "승인대기", approved: "승인", suspended: "사용중지" }[value] || value);
 const isManager = () => ["super_admin", "admin"].includes(currentProfile?.role);
+
+function currentTabState() {
+  return tabState[activeTab];
+}
 
 function ensureModal() {
   if (document.getElementById("userManagementModal")) return;
@@ -30,7 +43,7 @@ function ensureModal() {
         <div>
           <p class="eyebrow">ADMIN</p>
           <h2 id="adminModalTitle">사용자 관리</h2>
-          <p class="muted">승인 요청과 빙고·킬내기 권한을 관리합니다.</p>
+          <p class="muted">승인 요청과 서비스 권한을 관리합니다.</p>
         </div>
         <div class="admin-modal-header-actions">
           <button id="adminRefreshUsers" class="secondary compact-button" type="button">새로고침</button>
@@ -45,6 +58,22 @@ function ensureModal() {
         <button id="approvedUsersTab" class="admin-tab" type="button" role="tab" aria-selected="false" data-admin-tab="approved">
           승인 완료 <span id="approvedUsersCount" class="tab-count">0</span>
         </button>
+      </div>
+
+      <div class="admin-user-toolbar">
+        <div class="admin-user-search-wrap">
+          <label for="adminUserSearch">사용자 검색</label>
+          <input id="adminUserSearch" type="search" placeholder="이름 또는 이메일 검색" autocomplete="off" />
+        </div>
+        <div class="admin-user-sort-wrap">
+          <label for="adminUserSort">정렬</label>
+          <select id="adminUserSort">
+            <option value="name">이름</option>
+            <option value="role">구분</option>
+            <option value="status">상태</option>
+          </select>
+          <button id="adminUserSortDirection" class="secondary admin-sort-direction" type="button">오름차순 ↑</button>
+        </div>
       </div>
 
       <p id="adminModalMessage" class="message admin-modal-message"></p>
@@ -66,6 +95,15 @@ function ensureModal() {
         </table>
       </div>
       <div id="adminUsersEmpty" class="admin-users-empty hidden"></div>
+
+      <div id="adminUsersPagination" class="admin-users-pagination hidden">
+        <span id="adminUsersPageSummary" class="admin-page-summary"></span>
+        <div class="admin-page-buttons">
+          <button id="adminUsersPrev" class="secondary" type="button">이전</button>
+          <span id="adminUsersPageNumber" class="admin-page-number"></span>
+          <button id="adminUsersNext" class="secondary" type="button">다음</button>
+        </div>
+      </div>
     </section>
   `;
   document.body.appendChild(modal);
@@ -78,8 +116,44 @@ function ensureModal() {
     button.addEventListener("click", () => {
       activeTab = button.dataset.adminTab;
       renderTabs();
+      syncControlsFromState();
       renderUsers();
     });
+  });
+
+  document.getElementById("adminUserSearch").addEventListener("input", (event) => {
+    const state = currentTabState();
+    state.search = event.target.value;
+    state.page = 1;
+    renderUsers();
+  });
+
+  document.getElementById("adminUserSort").addEventListener("change", (event) => {
+    const state = currentTabState();
+    state.sortKey = event.target.value;
+    state.page = 1;
+    renderUsers();
+  });
+
+  document.getElementById("adminUserSortDirection").addEventListener("click", () => {
+    const state = currentTabState();
+    state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+    state.page = 1;
+    syncControlsFromState();
+    renderUsers();
+  });
+
+  document.getElementById("adminUsersPrev").addEventListener("click", () => {
+    const state = currentTabState();
+    if (state.page <= 1) return;
+    state.page -= 1;
+    renderUsers();
+  });
+
+  document.getElementById("adminUsersNext").addEventListener("click", () => {
+    const state = currentTabState();
+    state.page += 1;
+    renderUsers();
   });
 
   document.addEventListener("keydown", (event) => {
@@ -131,6 +205,7 @@ export async function openUserManagementModal() {
   modal.classList.remove("hidden");
   document.body.classList.add("modal-open");
   activeTab = "pending";
+  syncControlsFromState();
   renderTabs();
   await loadUsers();
 }
@@ -150,16 +225,12 @@ async function loadUsers() {
   try {
     const snap = await getDocs(collection(db, "users"));
     allUsers = snap.docs.map((item) => ({ uid: item.id, ...item.data() }));
-    allUsers.sort((a, b) => {
-      const rank = { super_admin: 0, admin: 1, user: 2 };
-      return (rank[a.role] ?? 9) - (rank[b.role] ?? 9)
-        || (a.name || a.email || "").localeCompare(b.name || b.email || "", "ko");
-    });
 
     document.getElementById("pendingUsersCount").textContent = String(allUsers.filter((user) => user.status === "pending").length);
     document.getElementById("approvedUsersCount").textContent = String(allUsers.filter((user) => user.status !== "pending").length);
     message.textContent = "";
     renderTabs();
+    syncControlsFromState();
     renderUsers();
   } catch (error) {
     console.error(error);
@@ -173,6 +244,55 @@ function renderTabs() {
     button.classList.toggle("active", selected);
     button.setAttribute("aria-selected", selected ? "true" : "false");
   });
+}
+
+function syncControlsFromState() {
+  const state = currentTabState();
+  const search = document.getElementById("adminUserSearch");
+  const sort = document.getElementById("adminUserSort");
+  const direction = document.getElementById("adminUserSortDirection");
+  if (!search || !sort || !direction) return;
+
+  search.value = state.search;
+  sort.value = state.sortKey;
+  direction.textContent = state.sortDir === "asc" ? "오름차순 ↑" : "내림차순 ↓";
+}
+
+function filteredSortedUsers() {
+  const state = currentTabState();
+  const query = state.search.trim().toLocaleLowerCase("ko");
+
+  const users = allUsers.filter((user) => {
+    const inTab = activeTab === "pending"
+      ? user.status === "pending"
+      : user.status !== "pending";
+    if (!inTab) return false;
+    if (!query) return true;
+
+    const haystack = `${user.name || ""} ${user.email || ""}`.toLocaleLowerCase("ko");
+    return haystack.includes(query);
+  });
+
+  const roleRank = { super_admin: 0, admin: 1, user: 2 };
+  const statusRank = { pending: 0, approved: 1, suspended: 2 };
+
+  users.sort((a, b) => {
+    let result = 0;
+    if (state.sortKey === "role") {
+      result = (roleRank[a.role] ?? 9) - (roleRank[b.role] ?? 9);
+    } else if (state.sortKey === "status") {
+      result = (statusRank[a.status] ?? 9) - (statusRank[b.status] ?? 9);
+    } else {
+      result = (a.name || a.email || "").localeCompare(b.name || b.email || "", "ko");
+    }
+
+    if (result === 0) {
+      result = (a.name || a.email || "").localeCompare(b.name || b.email || "", "ko");
+    }
+    return state.sortDir === "asc" ? result : -result;
+  });
+
+  return users;
 }
 
 function makeAccessSelect(user, field, editable) {
@@ -218,25 +338,73 @@ function addCell(row, content) {
   row.appendChild(cell);
 }
 
-function renderUsers() {
-  const body = document.getElementById("adminUsersBody");
-  const empty = document.getElementById("adminUsersEmpty");
-  if (!body || !empty) return;
-
-  const users = activeTab === "pending"
-    ? allUsers.filter((user) => user.status === "pending")
-    : allUsers.filter((user) => user.status !== "pending");
-
-  body.innerHTML = "";
-  empty.classList.toggle("hidden", users.length > 0);
-  if (!users.length) {
-    empty.textContent = activeTab === "pending"
-      ? "승인을 기다리는 사용자가 없습니다."
-      : "승인이 완료된 사용자가 없습니다.";
+async function deleteManagedUser(user) {
+  if (user.role !== "user") {
+    await showNotice("일반 사용자만 삭제할 수 있습니다.");
     return;
   }
 
-  users.forEach((user) => {
+  try {
+    const membershipSnap = await getDoc(doc(db, "bingoMemberships", user.uid));
+    if (membershipSnap.exists()) {
+      await showNotice(
+        "현재 빙고방 참여 정보가 남아 있어 삭제할 수 없습니다. 해당 사용자가 방에서 나가거나, 자신이 만든 방을 삭제한 뒤 다시 시도해주세요.",
+        "사용자 삭제 불가"
+      );
+      return;
+    }
+  } catch (error) {
+    console.error(error);
+    await showNotice("사용자의 빙고 참여 상태를 확인하지 못했습니다.");
+    return;
+  }
+
+  const label = user.name || user.email || "선택한 사용자";
+  const confirmed = await showConfirm(
+    `${label} 사용자를 삭제할까요?\n\n서비스 사용자 정보가 삭제되며, 같은 Google 계정으로 다시 접속하면 승인 요청을 다시 할 수 있습니다.`,
+    { title: "사용자 삭제", confirmText: "삭제", danger: true }
+  );
+  if (!confirmed) return;
+
+  try {
+    await deleteDoc(doc(db, "users", user.uid));
+    await loadUsers();
+    await showNotice("사용자를 삭제했습니다.");
+  } catch (error) {
+    console.error(error);
+    await showNotice("사용자 삭제에 실패했습니다. Firestore 규칙이 최신인지 확인해주세요.");
+  }
+}
+
+function renderUsers() {
+  const body = document.getElementById("adminUsersBody");
+  const empty = document.getElementById("adminUsersEmpty");
+  const pagination = document.getElementById("adminUsersPagination");
+  if (!body || !empty || !pagination) return;
+
+  const state = currentTabState();
+  const users = filteredSortedUsers();
+  const totalPages = Math.max(1, Math.ceil(users.length / PAGE_SIZE));
+  if (state.page > totalPages) state.page = totalPages;
+  if (state.page < 1) state.page = 1;
+
+  const start = (state.page - 1) * PAGE_SIZE;
+  const pageUsers = users.slice(start, start + PAGE_SIZE);
+
+  body.innerHTML = "";
+  empty.classList.toggle("hidden", users.length > 0);
+  pagination.classList.toggle("hidden", users.length === 0);
+
+  if (!users.length) {
+    empty.textContent = state.search.trim()
+      ? "검색 조건에 맞는 사용자가 없습니다."
+      : activeTab === "pending"
+        ? "승인을 기다리는 사용자가 없습니다."
+        : "승인이 완료된 사용자가 없습니다.";
+    return;
+  }
+
+  pageUsers.forEach((user) => {
     const row = document.createElement("tr");
     addCell(row, user.name || "-");
     addCell(row, user.email || "-");
@@ -299,6 +467,8 @@ function renderUsers() {
           }
         }));
       }
+
+      actions.appendChild(makeButton("삭제", () => deleteManagedUser(user), "danger admin-delete-user"));
     } else if (user.role === "admin" && currentProfile.role === "super_admin") {
       actions.appendChild(makeButton("일반사용자로 변경", async () => {
         if (!await showConfirm(`${user.name || user.email} 관리자를 일반사용자로 변경할까요?`, { title: "관리자 해제", confirmText: "변경" })) return;
@@ -319,4 +489,10 @@ function renderUsers() {
     addCell(row, actions);
     body.appendChild(row);
   });
+
+  const end = Math.min(start + pageUsers.length, users.length);
+  document.getElementById("adminUsersPageSummary").textContent = `총 ${users.length}명 · ${start + 1}-${end}명 표시`;
+  document.getElementById("adminUsersPageNumber").textContent = `${state.page} / ${totalPages}`;
+  document.getElementById("adminUsersPrev").disabled = state.page <= 1;
+  document.getElementById("adminUsersNext").disabled = state.page >= totalPages;
 }
