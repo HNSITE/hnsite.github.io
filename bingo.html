@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>빙고 | CHURANG</title>
+  <link rel="stylesheet" href="./assets/styles.css?v=4" />
+</head>
+<body class="app-page" data-feature="bingo">
+  <header class="topbar app-topbar">
+    <a class="topbar-brand" href="./app.html">CHURANG</a>
+    <nav class="topbar-user">
+      <a class="topbar-link" href="./app.html">메인</a>
+      <span id="userEmail" class="topbar-email"></span>
+      <span id="roleBadge" class="badge"></span>
+      <button id="logoutButton" class="secondary compact-button" type="button">로그아웃</button>
+    </nav>
+  </header>
+  <main class="page-wrap feature-page-wrap">
+    <section id="loadingPanel" class="panel"><h2>권한을 확인하고 있습니다...</h2></section>
+    <section id="featureContent" class="panel hidden">
+      <p class="eyebrow">CHURANG</p>
+      <h1>빙고</h1>
+      <p id="featurePermission" class="muted"></p>
+      <div class="coming-soon-box">빙고 화면은 다음 단계에서 구현합니다.</div>
+    </section>
+  </main>
+  <script type="module" src="./js/feature.js?v=4"></script>
+</body>
+</html>
