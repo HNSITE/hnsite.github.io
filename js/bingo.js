@@ -568,7 +568,7 @@ onAuthStateChanged(auth, async (user) => {
 
     document.getElementById("userEmail").textContent = user.email || "";
     document.getElementById("roleBadge").textContent = roleLabel(currentProfile.role);
-    document.getElementById("bingoPermissionBadge").textContent = `빙고 ${accessLabel(bingoAccess())}`;
+    document.getElementById("bingoPermissionBadge").textContent = `빙고 권한: ${accessLabel(bingoAccess())}`;
 
     // 빙고 핵심 상태를 먼저 복구합니다. 참가자 선택용 사용자 목록 조회 실패가
     // 빙고 전체 진입을 막지 않도록 별도로 처리합니다.
