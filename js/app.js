@@ -1,7 +1,8 @@
 import { auth, db } from "./firebase-config.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
-import { initUserManagementModal } from "./admin-modal.js?v=9";
+import { initUserManagementModal } from "./admin-modal.js?v=14";
+import { showNotice } from "./ui-dialog.js?v=14";
 
 const loadingPanel = document.getElementById("loadingPanel");
 const appContent = document.getElementById("appContent");
@@ -105,5 +106,5 @@ document.getElementById("logoutButton").addEventListener("click", async () => {
 document.getElementById("killButton").addEventListener("click", (event) => {
   if (event.currentTarget.classList.contains("disabled")) return;
   event.preventDefault();
-  alert("준비중입니다.");
+  showNotice("현재 킬내기 기능을 준비하고 있습니다.", "준비중입니다");
 });

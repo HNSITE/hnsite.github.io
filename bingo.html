@@ -17,7 +17,7 @@
     })();
   </script>
   <title>빙고 | CHURANG</title>
-  <link rel="stylesheet" href="./assets/styles.css?v=12" />
+  <link rel="stylesheet" href="./assets/styles.css?v=14" />
 </head>
 <body class="app-page">
   <header class="topbar app-topbar">
@@ -41,7 +41,7 @@
         <div>
           <p class="eyebrow">BINGO</p>
           <h1>빙고</h1>
-          <p class="muted">빙고방을 만들거나 초대받은 방에 참가할 수 있어요.</p>
+          
         </div>
         <a class="secondary-link-button" href="./app.html">메인으로</a>
       </section>
@@ -99,10 +99,10 @@
           <div class="image-policy-box">
             <div>
               <strong>빙고 사진</strong>
-              <p>사진을 선택하면 방 생성 시 자동으로 WebP로 압축하여 저장합니다.</p>
+              <p>사진을 선택하면 방 생성 시 자동으로 크기를 조정하고 압축하여 저장합니다.</p>
             </div>
             <input id="roomImage" type="file" accept="image/*" />
-            <p id="imageUploadStatus" class="muted">사진을 선택하면 빙고판 생성 시 자동으로 WebP 압축 후 업로드합니다.</p>
+            <p id="imageUploadStatus" class="muted">사진을 선택하면 빙고판 생성 시 자동으로 압축 후 업로드합니다.</p>
             <ul>
               <li>방당 사진 1장만 저장</li>
               <li>업로드 전 자동 리사이즈·압축</li>
@@ -115,9 +115,14 @@
           <fieldset class="participant-fieldset">
             <legend>참가자 선택</legend>
             <p class="muted participant-help">선택된 사용자만 이 방의 참가 목록을 볼 수 있습니다. 실제 입장은 한 번에 한 방만 가능합니다.</p>
+            <div class="participant-search-row">
+              <input id="participantSearch" type="search" placeholder="이름 또는 이메일 검색" autocomplete="off" />
+              <span id="participantSearchCount" class="list-count-text"></span>
+            </div>
             <div id="participantList" class="participant-list">
               참가 가능한 사용자를 불러오는 중...
             </div>
+            <div id="participantPagination" class="list-pagination" aria-label="참가자 선택 페이지"></div>
           </fieldset>
 
           <div class="form-footer-row">
@@ -140,6 +145,6 @@
     </div>
   </main>
 
-  <script type="module" src="./js/bingo.js?v=12"></script>
+  <script type="module" src="./js/bingo.js?v=14"></script>
 </body>
 </html>

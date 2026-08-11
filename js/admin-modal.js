@@ -5,6 +5,7 @@ import {
   getDocs,
   updateDoc
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+import { showConfirm, showNotice } from "./ui-dialog.js?v=14";
 
 let currentProfile = null;
 let allUsers = [];
@@ -193,7 +194,7 @@ function makeAccessSelect(user, field, editable) {
         user[field] = select.value;
       } catch (error) {
         console.error(error);
-        alert("권한 변경에 실패했습니다.");
+        await showNotice("권한 변경에 실패했습니다.");
         select.value = previous;
       }
     });
@@ -261,7 +262,7 @@ function renderUsers() {
             await loadUsers();
           } catch (error) {
             console.error(error);
-            alert("승인에 실패했습니다.");
+            await showNotice("승인에 실패했습니다.");
           }
         }));
       } else if (user.status === "approved") {
@@ -271,7 +272,7 @@ function renderUsers() {
             await loadUsers();
           } catch (error) {
             console.error(error);
-            alert("사용중지에 실패했습니다.");
+            await showNotice("사용중지에 실패했습니다.");
           }
         }, "danger"));
       } else if (user.status === "suspended") {
@@ -281,26 +282,26 @@ function renderUsers() {
             await loadUsers();
           } catch (error) {
             console.error(error);
-            alert("사용재개에 실패했습니다.");
+            await showNotice("사용재개에 실패했습니다.");
           }
         }));
       }
 
       if (currentProfile.role === "super_admin" && user.status === "approved") {
         actions.appendChild(makeButton("관리자로 지정", async () => {
-          if (!confirm(`${user.name || user.email} 사용자를 관리자로 지정할까요?`)) return;
+          if (!await showConfirm(`${user.name || user.email} 사용자를 관리자로 지정할까요?`, { title: "관리자 지정", confirmText: "지정" })) return;
           try {
             await updateDoc(doc(db, "users", user.uid), { role: "admin" });
             await loadUsers();
           } catch (error) {
             console.error(error);
-            alert("관리자 지정에 실패했습니다.");
+            await showNotice("관리자 지정에 실패했습니다.");
           }
         }));
       }
     } else if (user.role === "admin" && currentProfile.role === "super_admin") {
       actions.appendChild(makeButton("일반사용자로 변경", async () => {
-        if (!confirm(`${user.name || user.email} 관리자를 일반사용자로 변경할까요?`)) return;
+        if (!await showConfirm(`${user.name || user.email} 관리자를 일반사용자로 변경할까요?`, { title: "관리자 해제", confirmText: "변경" })) return;
         try {
           await updateDoc(doc(db, "users", user.uid), {
             role: "user",
@@ -310,7 +311,7 @@ function renderUsers() {
           await loadUsers();
         } catch (error) {
           console.error(error);
-          alert("관리자 해제에 실패했습니다.");
+          await showNotice("관리자 해제에 실패했습니다.");
         }
       }));
     }

@@ -17,7 +17,7 @@ import {
   uploadBytes
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
 import { BINGO_IMAGE_POLICY, compressBingoImage } from "./image-policy.js?v=7";
-import { initUserManagementModal } from "./admin-modal.js?v=9";
+import { initUserManagementModal } from "./admin-modal.js?v=14";
 
 const loadingPanel = document.getElementById("loadingPanel");
 const bingoContent = document.getElementById("bingoContent");
@@ -30,12 +30,19 @@ const roomList = document.getElementById("roomList");
 const createRoomButton = document.getElementById("createRoomButton");
 const roomImage = document.getElementById("roomImage");
 const imageUploadStatus = document.getElementById("imageUploadStatus");
+const participantSearch = document.getElementById("participantSearch");
+const participantSearchCount = document.getElementById("participantSearchCount");
+const participantPagination = document.getElementById("participantPagination");
 
 let currentUser = null;
 let currentProfile = null;
 let currentMembership = null;
 let selectableUsers = [];
 let visibleRooms = [];
+let selectedParticipantUids = new Set();
+let participantSearchTerm = "";
+let participantPage = 1;
+const PARTICIPANT_PAGE_SIZE = 5;
 
 const roleLabel = (value) => ({
   super_admin: "최고관리자",
@@ -128,29 +135,82 @@ function renderCurrentRoom() {
   `;
 }
 
+function matchesParticipantSearch(user, term) {
+  if (!term) return true;
+  const haystack = `${user.name || ""} ${user.email || ""}`.toLocaleLowerCase("ko");
+  return haystack.includes(term.toLocaleLowerCase("ko"));
+}
+
+function renderPagination(container, totalItems, page, onChange) {
+  container.innerHTML = "";
+  const totalPages = Math.max(1, Math.ceil(totalItems / PARTICIPANT_PAGE_SIZE));
+  if (totalItems <= PARTICIPANT_PAGE_SIZE) return;
+
+  const prev = document.createElement("button");
+  prev.type = "button";
+  prev.className = "pagination-button";
+  prev.textContent = "이전";
+  prev.disabled = page <= 1;
+  prev.addEventListener("click", () => onChange(page - 1));
+
+  const info = document.createElement("span");
+  info.className = "pagination-info";
+  info.textContent = `${page} / ${totalPages}`;
+
+  const next = document.createElement("button");
+  next.type = "button";
+  next.className = "pagination-button";
+  next.textContent = "다음";
+  next.disabled = page >= totalPages;
+  next.addEventListener("click", () => onChange(page + 1));
+
+  container.append(prev, info, next);
+}
+
 function renderParticipantList() {
   if (bingoAccess() !== "write") {
     participantList.textContent = "빙고 쓰기 권한이 있어야 방을 생성할 수 있습니다.";
+    participantPagination.innerHTML = "";
     return;
   }
 
-  if (!selectableUsers.length) {
-    participantList.textContent = "선택할 수 있는 승인 사용자가 없습니다.";
+  const filtered = selectableUsers.filter((user) => matchesParticipantSearch(user, participantSearchTerm));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PARTICIPANT_PAGE_SIZE));
+  participantPage = Math.min(participantPage, totalPages);
+  participantSearchCount.textContent = `${filtered.length}명`;
+
+  if (!filtered.length) {
+    participantList.innerHTML = '<div class="participant-manage-empty participant-list-empty">검색 결과가 없습니다.</div>';
+    participantPagination.innerHTML = "";
     return;
   }
 
+  const start = (participantPage - 1) * PARTICIPANT_PAGE_SIZE;
+  const pageUsers = filtered.slice(start, start + PARTICIPANT_PAGE_SIZE);
   participantList.innerHTML = "";
-  selectableUsers.forEach((user) => {
+
+  pageUsers.forEach((user) => {
     const label = document.createElement("label");
     label.className = "participant-option";
+    const checked = selectedParticipantUids.has(user.uid) ? "checked" : "";
     label.innerHTML = `
-      <input type="checkbox" name="participantUid" value="${escapeAttribute(user.uid)}" />
+      <input type="checkbox" name="participantUid" value="${escapeAttribute(user.uid)}" ${checked} />
       <span>
         <strong>${escapeHtml(user.name || user.email || "사용자")}</strong>
         <small>${escapeHtml(user.email || "")}</small>
       </span>
     `;
+    const checkbox = label.querySelector("input");
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) selectedParticipantUids.add(user.uid);
+      else selectedParticipantUids.delete(user.uid);
+    });
     participantList.appendChild(label);
+  });
+
+  renderPagination(participantPagination, filtered.length, participantPage, (nextPage) => {
+    participantPage = nextPage;
+    renderParticipantList();
   });
 }
 
@@ -313,8 +373,7 @@ async function createRoom(event) {
   const name = document.getElementById("roomName").value.trim();
   const size = Number(document.getElementById("roomSize").value);
   const imageFile = roomImage.files?.[0] || null;
-  const participantUids = [...document.querySelectorAll('input[name="participantUid"]:checked')]
-    .map((item) => item.value);
+  const participantUids = [...selectedParticipantUids];
 
   if (!name) {
     setMessage("빙고 이름을 입력해주세요.");
@@ -338,7 +397,7 @@ async function createRoom(event) {
   try {
     if (imageFile) {
       createRoomButton.textContent = "사진 압축 중...";
-      imageUploadStatus.textContent = "사진을 WebP로 자동 압축하고 있습니다...";
+      imageUploadStatus.textContent = "사진을 자동으로 압축하고 있습니다...";
       compressedImage = await compressBingoImage(imageFile);
       imageUploadStatus.textContent = `압축 완료: ${formatBytes(compressedImage.size)} (최대 2MB)`;
     }
@@ -469,10 +528,16 @@ document.getElementById("refreshRoomsButton").addEventListener("click", async ()
 });
 
 
+participantSearch.addEventListener("input", () => {
+  participantSearchTerm = participantSearch.value.trim();
+  participantPage = 1;
+  renderParticipantList();
+});
+
 roomImage.addEventListener("change", () => {
   const file = roomImage.files?.[0];
   if (!file) {
-    imageUploadStatus.textContent = "사진을 선택하면 빙고판 생성 시 자동으로 WebP 압축 후 업로드합니다.";
+    imageUploadStatus.textContent = "사진을 선택하면 빙고판 생성 시 자동으로 압축 후 업로드합니다.";
     return;
   }
   if (!file.type?.startsWith("image/")) {

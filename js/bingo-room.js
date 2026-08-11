@@ -16,7 +16,8 @@ import {
   getDownloadURL,
   ref as storageRef
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
-import { initUserManagementModal } from "./admin-modal.js?v=9";
+import { initUserManagementModal } from "./admin-modal.js?v=14";
+import { showConfirm, showNotice } from "./ui-dialog.js?v=14";
 
 const params = new URLSearchParams(location.search);
 const roomId = params.get("id");
@@ -32,6 +33,10 @@ const currentParticipantList = document.getElementById("currentParticipantList")
 const availableParticipantList = document.getElementById("availableParticipantList");
 const currentParticipantCount = document.getElementById("currentParticipantCount");
 const availableParticipantCount = document.getElementById("availableParticipantCount");
+const currentParticipantSearch = document.getElementById("currentParticipantSearch");
+const availableParticipantSearch = document.getElementById("availableParticipantSearch");
+const currentParticipantPagination = document.getElementById("currentParticipantPagination");
+const availableParticipantPagination = document.getElementById("availableParticipantPagination");
 
 let currentUser = null;
 let currentProfile = null;
@@ -46,6 +51,11 @@ let participantDraftDirty = false;
 let roomUnsubscribe = null;
 let boardUnsubscribe = null;
 let membershipUnsubscribe = null;
+let currentParticipantSearchTerm = "";
+let availableParticipantSearchTerm = "";
+let currentParticipantPage = 1;
+let availableParticipantPage = 1;
+const MANAGE_PAGE_SIZE = 5;
 
 const roleLabel = (value) => ({
   super_admin: "최고관리자",
@@ -123,7 +133,7 @@ async function loadBoardImage() {
 function renderRoomHeader() {
   document.getElementById("roomTitle").textContent = roomData.name || "빙고";
   document.getElementById("roomMeta").textContent = `${roomData.size} × ${roomData.size} · 방장 ${roomData.ownerName || "-"}`;
-  document.getElementById("boardPermission").textContent = access === "write" ? "쓰기" : "읽기";
+  document.getElementById("boardPermission").textContent = `권한: ${access === "write" ? "쓰기" : "읽기"}`;
 
   roomActions.innerHTML = "";
 
@@ -305,31 +315,82 @@ function createParticipantManageItem(user, mode) {
   return item;
 }
 
+function participantMatches(user, term) {
+  if (!term) return true;
+  const haystack = `${user.name || ""} ${user.email || ""}`.toLocaleLowerCase("ko");
+  return haystack.includes(term.toLocaleLowerCase("ko"));
+}
+
+function renderManagePagination(container, totalItems, page, onChange) {
+  container.innerHTML = "";
+  const totalPages = Math.max(1, Math.ceil(totalItems / MANAGE_PAGE_SIZE));
+  if (totalItems <= MANAGE_PAGE_SIZE) return;
+
+  const prev = document.createElement("button");
+  prev.type = "button";
+  prev.className = "pagination-button";
+  prev.textContent = "이전";
+  prev.disabled = page <= 1;
+  prev.addEventListener("click", () => onChange(page - 1));
+
+  const info = document.createElement("span");
+  info.className = "pagination-info";
+  info.textContent = `${page} / ${totalPages}`;
+
+  const next = document.createElement("button");
+  next.type = "button";
+  next.className = "pagination-button";
+  next.textContent = "다음";
+  next.disabled = page >= totalPages;
+  next.addEventListener("click", () => onChange(page + 1));
+  container.append(prev, info, next);
+}
+
 function renderManageUsers() {
   currentParticipantList.innerHTML = "";
   availableParticipantList.innerHTML = "";
 
-  const currentUids = [...participantDraft];
-  const availableUsers = allUsers.filter((user) => canBeParticipant(user) && !participantDraft.has(user.uid));
+  const currentUsers = [...participantDraft]
+    .map((uid) => participantUser(uid))
+    .filter((user) => participantMatches(user, currentParticipantSearchTerm));
+  const availableUsers = allUsers
+    .filter((user) => canBeParticipant(user) && !participantDraft.has(user.uid))
+    .filter((user) => participantMatches(user, availableParticipantSearchTerm));
 
-  currentParticipantCount.textContent = `${currentUids.length}명`;
-  availableParticipantCount.textContent = `${availableUsers.length}명`;
+  currentParticipantCount.textContent = `${participantDraft.size}명`;
+  availableParticipantCount.textContent = `${allUsers.filter((user) => canBeParticipant(user) && !participantDraft.has(user.uid)).length}명`;
 
-  if (!currentUids.length) {
-    currentParticipantList.innerHTML = '<div class="participant-manage-empty">현재 지정된 참가자가 없습니다.</div>';
+  const currentPages = Math.max(1, Math.ceil(currentUsers.length / MANAGE_PAGE_SIZE));
+  const availablePages = Math.max(1, Math.ceil(availableUsers.length / MANAGE_PAGE_SIZE));
+  currentParticipantPage = Math.min(currentParticipantPage, currentPages);
+  availableParticipantPage = Math.min(availableParticipantPage, availablePages);
+
+  if (!currentUsers.length) {
+    currentParticipantList.innerHTML = `<div class="participant-manage-empty">${currentParticipantSearchTerm ? "검색 결과가 없습니다." : "현재 지정된 참가자가 없습니다."}</div>`;
   } else {
-    currentUids.forEach((uid) => {
-      currentParticipantList.appendChild(createParticipantManageItem(participantUser(uid), "remove"));
+    const start = (currentParticipantPage - 1) * MANAGE_PAGE_SIZE;
+    currentUsers.slice(start, start + MANAGE_PAGE_SIZE).forEach((user) => {
+      currentParticipantList.appendChild(createParticipantManageItem(user, "remove"));
     });
   }
 
   if (!availableUsers.length) {
-    availableParticipantList.innerHTML = '<div class="participant-manage-empty">추가 가능한 사용자가 없습니다.</div>';
+    availableParticipantList.innerHTML = `<div class="participant-manage-empty">${availableParticipantSearchTerm ? "검색 결과가 없습니다." : "추가 가능한 사용자가 없습니다."}</div>`;
   } else {
-    availableUsers.forEach((user) => {
+    const start = (availableParticipantPage - 1) * MANAGE_PAGE_SIZE;
+    availableUsers.slice(start, start + MANAGE_PAGE_SIZE).forEach((user) => {
       availableParticipantList.appendChild(createParticipantManageItem(user, "add"));
     });
   }
+
+  renderManagePagination(currentParticipantPagination, currentUsers.length, currentParticipantPage, (page) => {
+    currentParticipantPage = page;
+    renderManageUsers();
+  });
+  renderManagePagination(availableParticipantPagination, availableUsers.length, availableParticipantPage, (page) => {
+    availableParticipantPage = page;
+    renderManageUsers();
+  });
 
   const saveButton = document.getElementById("saveParticipantsButton");
   saveButton.disabled = !participantDraftDirty;
@@ -386,7 +447,11 @@ async function saveParticipants() {
 
 async function leaveRoom() {
   if (isOwner()) return;
-  if (!confirm("현재 빙고방에서 나갈까요?\n나간 뒤에는 다른 빙고방에 참가할 수 있습니다.")) return;
+  const confirmed = await showConfirm(
+    "나간 뒤에는 다른 빙고방에 참가할 수 있습니다.",
+    { title: "현재 빙고방에서 나갈까요?", confirmText: "방 나가기", danger: true }
+  );
+  if (!confirmed) return;
 
   try {
     await deleteDoc(doc(db, "bingoMemberships", currentUser.uid));
@@ -399,7 +464,11 @@ async function leaveRoom() {
 
 async function deleteRoom() {
   if (!isOwner()) return;
-  if (!confirm("이 빙고방을 삭제할까요?\n참가자들의 현재 참가 상태와 빙고 데이터도 함께 정리됩니다.")) return;
+  const confirmed = await showConfirm(
+    "참가자들의 현재 참가 상태와 빙고 데이터도 함께 정리됩니다.",
+    { title: "이 빙고방을 삭제할까요?", confirmText: "방 삭제", danger: true }
+  );
+  if (!confirmed) return;
 
   setMessage("방을 삭제하고 있습니다...");
 
@@ -464,7 +533,7 @@ function startRealtimeListeners() {
       || (roomData.participantUids || []).includes(currentUser.uid);
 
     if (!allowed) {
-      alert("방장이 참가자 목록에서 제외하여 빙고방에서 나갑니다.");
+      await showNotice("방장이 참가자 목록에서 제외했습니다.", "빙고방에서 나갑니다");
       location.replace("./bingo.html");
       return;
     }
@@ -497,6 +566,18 @@ function startRealtimeListeners() {
     if (data.roomId !== roomId) location.replace("./bingo.html");
   });
 }
+
+currentParticipantSearch.addEventListener("input", () => {
+  currentParticipantSearchTerm = currentParticipantSearch.value.trim();
+  currentParticipantPage = 1;
+  renderManageUsers();
+});
+
+availableParticipantSearch.addEventListener("input", () => {
+  availableParticipantSearchTerm = availableParticipantSearch.value.trim();
+  availableParticipantPage = 1;
+  renderManageUsers();
+});
 
 document.getElementById("saveParticipantsButton").addEventListener("click", saveParticipants);
 
