@@ -341,6 +341,15 @@ async function deleteRoom() {
       }
     }
 
+    // 방 문서를 지우는 순간 실시간 리스너가 먼저 이동시키면
+    // 방장 membership 삭제가 중단될 수 있으므로 삭제 직전에 감시를 종료합니다.
+    roomUnsubscribe?.();
+    boardUnsubscribe?.();
+    membershipUnsubscribe?.();
+    roomUnsubscribe = null;
+    boardUnsubscribe = null;
+    membershipUnsubscribe = null;
+
     await deleteDoc(doc(db, "bingoBoards", roomId));
     await deleteDoc(doc(db, "bingoRooms", roomId));
     await deleteDoc(doc(db, "bingoMemberships", currentUser.uid));
@@ -349,6 +358,17 @@ async function deleteRoom() {
   } catch (error) {
     console.error(error);
     setMessage("방 삭제 중 오류가 발생했습니다. 다시 시도해주세요.");
+
+    // 방 삭제 전에 실패한 경우에는 화면 실시간 감시를 다시 연결합니다.
+    try {
+      const roomSnap = await getDoc(doc(db, "bingoRooms", roomId));
+      if (roomSnap.exists() && !roomUnsubscribe && !boardUnsubscribe && !membershipUnsubscribe) {
+        startRealtimeListeners();
+      }
+    } catch (_) {
+      // 이미 방이 삭제된 상태라면 빙고 로비에서 고아 참가정보를 자동 정리합니다.
+      location.replace("./bingo.html");
+    }
   }
 }
 

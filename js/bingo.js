@@ -66,18 +66,38 @@ async function loadProfile(user) {
 }
 
 async function loadMembership() {
-  const ref = doc(db, "bingoMemberships", currentUser.uid);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return null;
+  const membershipRef = doc(db, "bingoMemberships", currentUser.uid);
+  const membershipSnap = await getDoc(membershipRef);
+  if (!membershipSnap.exists()) return null;
 
-  const membership = { id: snap.id, ...snap.data() };
-  const roomSnap = await getDoc(doc(db, "bingoRooms", membership.roomId));
+  const membership = { id: membershipSnap.id, ...membershipSnap.data() };
 
-  if (!roomSnap.exists()) {
-    // 삭제 중 중단 등으로 남은 자신의 고아 참가정보는 다음 진입 때 정리합니다.
-    const { deleteDoc } = await import("https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js");
-    await deleteDoc(ref);
+  if (!membership.roomId) {
+    await deleteDoc(membershipRef);
     return null;
+  }
+
+  try {
+    const roomSnap = await getDoc(doc(db, "bingoRooms", membership.roomId));
+
+    if (!roomSnap.exists()) {
+      await deleteDoc(membershipRef);
+      return null;
+    }
+  } catch (error) {
+    // 삭제된 방을 가리키는 참가정보가 남아 있으면 방 조회가 permission-denied가 될 수 있습니다.
+    // 참가자는 자신의 참가정보를 언제든 삭제할 수 있고,
+    // 방장은 실제 방이 삭제된 경우에만 Security Rules가 삭제를 허용합니다.
+    if (["permission-denied", "not-found"].includes(error?.code)) {
+      try {
+        await deleteDoc(membershipRef);
+        return null;
+      } catch (cleanupError) {
+        console.warn("고아 빙고 참가정보 자동 정리에 실패했습니다.", cleanupError);
+      }
+    }
+
+    throw error;
   }
 
   return membership;
