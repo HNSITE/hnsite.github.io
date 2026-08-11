@@ -77,29 +77,10 @@ async function loadMembership() {
     return null;
   }
 
-  try {
-    const roomSnap = await getDoc(doc(db, "bingoRooms", membership.roomId));
-
-    if (!roomSnap.exists()) {
-      await deleteDoc(membershipRef);
-      return null;
-    }
-  } catch (error) {
-    // 삭제된 방을 가리키는 참가정보가 남아 있으면 방 조회가 permission-denied가 될 수 있습니다.
-    // 참가자는 자신의 참가정보를 언제든 삭제할 수 있고,
-    // 방장은 실제 방이 삭제된 경우에만 Security Rules가 삭제를 허용합니다.
-    if (["permission-denied", "not-found"].includes(error?.code)) {
-      try {
-        await deleteDoc(membershipRef);
-        return null;
-      } catch (cleanupError) {
-        console.warn("고아 빙고 참가정보 자동 정리에 실패했습니다.", cleanupError);
-      }
-    }
-
-    throw error;
-  }
-
+  // 여기서는 room 문서를 직접 읽지 않습니다.
+  // 삭제된 room을 getDoc()으로 읽으면 Security Rules의 resource.data 조건 때문에
+  // permission-denied가 발생할 수 있습니다. refreshAll()에서 접근 가능한 방 목록과
+  // 비교한 뒤 고아 membership을 정리합니다.
   return membership;
 }
 
@@ -244,6 +225,24 @@ async function loadSelectableUsers() {
 async function refreshAll() {
   currentMembership = await loadMembership();
   await loadVisibleRooms();
+
+  // membership은 남아 있는데 실제로 접근 가능한 방이 없다면 고아 참가정보입니다.
+  // 참가자 제거, 방 삭제 중 페이지 이동 등 어떤 경우라도 여기서 자동 정리합니다.
+  if (currentMembership) {
+    const membershipRoomExists = visibleRooms.some((room) => room.id === currentMembership.roomId);
+
+    if (!membershipRoomExists) {
+      const membershipRef = doc(db, "bingoMemberships", currentUser.uid);
+      try {
+        await deleteDoc(membershipRef);
+        currentMembership = null;
+      } catch (cleanupError) {
+        console.error("고아 빙고 참가정보 정리 실패", cleanupError);
+        throw new Error("이전 빙고방 참가정보가 남아 있습니다. Firebase에서 참가정보를 한 번 정리해주세요.");
+      }
+    }
+  }
+
   renderCurrentRoom();
   renderRoomList();
 }
@@ -322,7 +321,7 @@ async function createRoom(event) {
     return;
   }
 
-  const allowedSizes = [3, 4, 5, 10, 20, 50, 100];
+  const allowedSizes = [3, 4, 5, 6, 7, 8, 9, 10];
   if (!allowedSizes.includes(size)) {
     setMessage("올바른 빙고판 크기를 선택해주세요.");
     return;
@@ -506,7 +505,17 @@ onAuthStateChanged(auth, async (user) => {
     document.getElementById("roleBadge").textContent = roleLabel(currentProfile.role);
     document.getElementById("bingoPermissionBadge").textContent = `빙고 ${accessLabel(bingoAccess())}`;
 
-    await Promise.all([loadSelectableUsers(), refreshAll()]);
+    // 빙고 핵심 상태를 먼저 복구합니다. 참가자 선택용 사용자 목록 조회 실패가
+    // 빙고 전체 진입을 막지 않도록 별도로 처리합니다.
+    await refreshAll();
+
+    try {
+      await loadSelectableUsers();
+    } catch (userListError) {
+      console.error("참가자 선택 목록 조회 실패", userListError);
+      selectableUsers = [];
+      setMessage("빙고는 사용할 수 있지만 참가자 목록을 불러오지 못했습니다.");
+    }
     renderParticipantList();
 
     loadingPanel.classList.add("hidden");

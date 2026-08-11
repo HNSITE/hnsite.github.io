@@ -7,8 +7,9 @@ import {
   getDocs,
   collection,
   onSnapshot,
+  runTransaction,
   serverTimestamp,
-  updateDoc
+  writeBatch
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 import {
   deleteObject,
@@ -27,7 +28,10 @@ const bingoBoard = document.getElementById("bingoBoard");
 const roomActions = document.getElementById("roomActions");
 const roomMessage = document.getElementById("roomMessage");
 const participantManagePanel = document.getElementById("participantManagePanel");
-const manageParticipantList = document.getElementById("manageParticipantList");
+const currentParticipantList = document.getElementById("currentParticipantList");
+const availableParticipantList = document.getElementById("availableParticipantList");
+const currentParticipantCount = document.getElementById("currentParticipantCount");
+const availableParticipantCount = document.getElementById("availableParticipantCount");
 
 let currentUser = null;
 let currentProfile = null;
@@ -37,6 +41,8 @@ let boardData = null;
 let boardImageUrl = "";
 let access = "none";
 let allUsers = [];
+let participantDraft = new Set();
+let participantDraftDirty = false;
 let roomUnsubscribe = null;
 let boardUnsubscribe = null;
 let membershipUnsubscribe = null;
@@ -199,7 +205,7 @@ function renderBoard() {
     }
 
     if (canWriteBoard()) {
-      cell.addEventListener("click", () => toggleCell(index, checked));
+      cell.addEventListener("click", () => toggleCell(index));
     }
 
     fragment.appendChild(cell);
@@ -208,14 +214,23 @@ function renderBoard() {
   bingoBoard.appendChild(fragment);
 }
 
-async function toggleCell(index, checked) {
+async function toggleCell(index) {
   if (!canWriteBoard()) return;
 
+  const boardRef = doc(db, "bingoBoards", roomId);
   const field = `checkedCells.${index}`;
+
   try {
-    await updateDoc(doc(db, "bingoBoards", roomId), {
-      [field]: !checked,
-      updatedAt: serverTimestamp()
+    await runTransaction(db, async (transaction) => {
+      const boardSnap = await transaction.get(boardRef);
+      if (!boardSnap.exists()) throw new Error("빙고판 정보를 찾을 수 없습니다.");
+
+      const checkedCells = boardSnap.data().checkedCells || {};
+      const currentChecked = checkedCells[String(index)] === true;
+      transaction.update(boardRef, {
+        [field]: !currentChecked,
+        updatedAt: serverTimestamp()
+      });
     });
   } catch (error) {
     console.error(error);
@@ -229,46 +244,107 @@ async function loadManageUsers() {
   const snap = await getDocs(collection(db, "users"));
   allUsers = snap.docs
     .map((item) => ({ uid: item.id, ...item.data() }))
-    .filter((user) => {
-      if (user.uid === currentUser.uid || user.status !== "approved") return false;
-      if (["super_admin", "admin"].includes(user.role)) return true;
-      return ["read", "write"].includes(user.bingoAccess);
-    })
+    .filter((user) => user.uid !== currentUser.uid)
     .sort((a, b) => (a.name || a.email || "").localeCompare(b.name || b.email || "", "ko"));
 
+  participantDraft = new Set(roomData.participantUids || []);
+  participantDraftDirty = false;
   renderManageUsers();
 }
 
-function renderManageUsers() {
-  manageParticipantList.innerHTML = "";
+function canBeParticipant(user) {
+  if (!user || user.status !== "approved") return false;
+  if (["super_admin", "admin"].includes(user.role)) return true;
+  return ["read", "write"].includes(user.bingoAccess);
+}
 
-  if (!allUsers.length) {
-    manageParticipantList.textContent = "선택할 수 있는 사용자가 없습니다.";
-    return;
+function participantUser(uid) {
+  return allUsers.find((user) => user.uid === uid) || { uid, name: "알 수 없는 사용자", email: uid };
+}
+
+function participantStatusText(user) {
+  if (user.status !== "approved") return "현재 승인 상태가 아닙니다.";
+  if (!canBeParticipant(user)) return "현재 빙고 접근 권한이 없습니다.";
+  return user.email || "";
+}
+
+function createParticipantManageItem(user, mode) {
+  const item = document.createElement("div");
+  item.className = "participant-manage-item";
+
+  const info = document.createElement("div");
+  info.className = "participant-manage-info";
+  info.innerHTML = `
+    <strong>${escapeHtml(user.name || user.email || "사용자")}</strong>
+    <small>${escapeHtml(participantStatusText(user))}</small>
+  `;
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = mode === "remove"
+    ? "danger-outline compact-button"
+    : "secondary compact-button";
+  button.textContent = mode === "remove" ? "삭제" : "추가";
+
+  if (mode === "remove") {
+    button.addEventListener("click", () => {
+      participantDraft.delete(user.uid);
+      participantDraftDirty = true;
+      renderManageUsers();
+    });
+  } else {
+    button.disabled = participantDraft.size >= 20;
+    button.addEventListener("click", () => {
+      if (participantDraft.size >= 20) {
+        setMessage("참가자는 최대 20명까지 지정할 수 있습니다.");
+        return;
+      }
+      participantDraft.add(user.uid);
+      participantDraftDirty = true;
+      renderManageUsers();
+    });
   }
 
-  const selected = new Set(roomData.participantUids || []);
-  allUsers.forEach((user) => {
-    const label = document.createElement("label");
-    label.className = "participant-option";
-    label.innerHTML = `
-      <input type="checkbox" name="manageParticipantUid" value="${escapeHtml(user.uid)}" ${selected.has(user.uid) ? "checked" : ""} />
-      <span>
-        <strong>${escapeHtml(user.name || user.email || "사용자")}</strong>
-        <small>${escapeHtml(user.email || "")}</small>
-      </span>
-    `;
-    manageParticipantList.appendChild(label);
-  });
+  item.append(info, button);
+  return item;
+}
+
+function renderManageUsers() {
+  currentParticipantList.innerHTML = "";
+  availableParticipantList.innerHTML = "";
+
+  const currentUids = [...participantDraft];
+  const availableUsers = allUsers.filter((user) => canBeParticipant(user) && !participantDraft.has(user.uid));
+
+  currentParticipantCount.textContent = `${currentUids.length}명`;
+  availableParticipantCount.textContent = `${availableUsers.length}명`;
+
+  if (!currentUids.length) {
+    currentParticipantList.innerHTML = '<div class="participant-manage-empty">현재 지정된 참가자가 없습니다.</div>';
+  } else {
+    currentUids.forEach((uid) => {
+      currentParticipantList.appendChild(createParticipantManageItem(participantUser(uid), "remove"));
+    });
+  }
+
+  if (!availableUsers.length) {
+    availableParticipantList.innerHTML = '<div class="participant-manage-empty">추가 가능한 사용자가 없습니다.</div>';
+  } else {
+    availableUsers.forEach((user) => {
+      availableParticipantList.appendChild(createParticipantManageItem(user, "add"));
+    });
+  }
+
+  const saveButton = document.getElementById("saveParticipantsButton");
+  saveButton.disabled = !participantDraftDirty;
 }
 
 async function saveParticipants() {
-  if (!isOwner() || access !== "write") return;
+  if (!isOwner() || access !== "write" || !participantDraftDirty) return;
 
-  const nextUids = [...document.querySelectorAll('input[name="manageParticipantUid"]:checked')]
-    .map((item) => item.value);
+  const nextUids = [...participantDraft];
   const previousUids = roomData.participantUids || [];
-  const removedUids = previousUids.filter((uid) => !nextUids.includes(uid));
+  const removedUids = previousUids.filter((uid) => !participantDraft.has(uid));
 
   const saveButton = document.getElementById("saveParticipantsButton");
   saveButton.disabled = true;
@@ -276,31 +352,39 @@ async function saveParticipants() {
   setMessage("");
 
   try {
-    // 현재 이 방에 들어와 있는 제외 대상은 방장이 먼저 퇴장 처리할 수 있습니다.
+    // 삭제 대상이 실제로 이 방에 입장 중인지 먼저 확인합니다.
+    // 아직 입장하지 않은 초대 사용자도 조회할 수 있도록 Firestore Rules v12를 함께 적용해야 합니다.
+    const activeMembershipRefs = [];
     for (const uid of removedUids) {
       const membershipRef = doc(db, "bingoMemberships", uid);
       const membershipSnap = await getDoc(membershipRef);
       if (membershipSnap.exists()) {
         const data = membershipSnap.data();
         if (data.roomId === roomId && data.role === "participant") {
-          await deleteDoc(membershipRef);
+          activeMembershipRefs.push(membershipRef);
         }
       }
     }
 
-    await updateDoc(doc(db, "bingoRooms", roomId), {
+    // 참가자 목록 변경과 현재 입장 중인 제외 사용자의 퇴장을 한 번에 커밋합니다.
+    const batch = writeBatch(db);
+    batch.update(doc(db, "bingoRooms", roomId), {
       participantUids: nextUids,
       updatedAt: serverTimestamp()
     });
+    activeMembershipRefs.forEach((membershipRef) => batch.delete(membershipRef));
+    await batch.commit();
 
-    setMessage("참가자 목록을 변경했습니다.", true);
+    roomData.participantUids = nextUids;
+    participantDraftDirty = false;
+    renderManageUsers();
+    setMessage("참가자 변경사항을 저장했습니다.", true);
   } catch (error) {
     console.error(error);
-    setMessage("참가자 변경에 실패했습니다.");
-    renderManageUsers();
+    setMessage("참가자 변경에 실패했습니다. Firestore Rules v12가 게시되었는지 확인해주세요.");
   } finally {
-    saveButton.disabled = false;
-    saveButton.textContent = "참가자 저장";
+    saveButton.textContent = "변경사항 저장";
+    saveButton.disabled = !participantDraftDirty;
   }
 }
 
@@ -391,7 +475,11 @@ function startRealtimeListeners() {
 
     renderRoomHeader();
     if (isOwner() && access === "write") {
-      await loadManageUsers();
+      if (!participantDraftDirty) {
+        await loadManageUsers();
+      } else {
+        renderManageUsers();
+      }
     } else {
       participantManagePanel.classList.add("hidden");
     }
