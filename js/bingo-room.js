@@ -124,9 +124,6 @@ function renderRoomHeader() {
   document.getElementById("roomTitle").textContent = roomData.name || "빙고";
   document.getElementById("roomMeta").textContent = `${roomData.size} × ${roomData.size} · 방장 ${roomData.ownerName || "-"}`;
   document.getElementById("boardPermission").textContent = access === "write" ? "쓰기" : "읽기";
-  document.getElementById("boardHelp").textContent = access === "write"
-    ? "칸을 눌러 체크하거나 해제할 수 있습니다. 사진이 있는 방은 체크한 칸에 해당 사진 조각이 보입니다."
-    : "읽기 권한입니다. 다른 사용자가 체크한 상태만 볼 수 있습니다.";
 
   roomActions.innerHTML = "";
 
@@ -137,10 +134,9 @@ function renderRoomHeader() {
       manageButton.className = "secondary";
       manageButton.textContent = "참가자 관리";
       manageButton.addEventListener("click", () => {
+        const willOpen = participantManagePanel.classList.contains("hidden");
         participantManagePanel.classList.toggle("hidden");
-        if (!participantManagePanel.classList.contains("hidden")) {
-          participantManagePanel.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
+        manageButton.textContent = willOpen ? "참가자 관리 닫기" : "참가자 관리";
       });
       roomActions.appendChild(manageButton);
     }
