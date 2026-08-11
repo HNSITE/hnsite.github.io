@@ -1,7 +1,7 @@
 import { auth, db } from "./firebase-config.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
-import { initUserManagementModal } from "./admin-modal.js?v=16";
+import { initUserManagementModal } from "./admin-modal.js?v=17";
 
 const feature = document.body.dataset.feature;
 const loadingPanel = document.getElementById("loadingPanel");

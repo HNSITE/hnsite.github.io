@@ -17,7 +17,7 @@ import {
   uploadBytes
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
 import { BINGO_IMAGE_POLICY, compressBingoImage } from "./image-policy.js?v=7";
-import { initUserManagementModal } from "./admin-modal.js?v=16";
+import { initUserManagementModal } from "./admin-modal.js?v=17";
 
 const loadingPanel = document.getElementById("loadingPanel");
 const bingoContent = document.getElementById("bingoContent");
@@ -131,7 +131,7 @@ function renderCurrentRoom() {
       <h3>${escapeHtml(room?.name || "현재 빙고방")}</h3>
       <p>${room?.size || "-"} × ${room?.size || "-"}</p>
     </div>
-    <a class="service-button" href="./bingo-room.html?id=${encodeURIComponent(currentMembership.roomId)}">현재 방으로 이동</a>
+    <a class="service-button" href="./bingo-room.html">현재 방으로 이동</a>
   `;
 }
 
@@ -236,7 +236,7 @@ function renderRoomList() {
 
     let actionHtml = "";
     if (isCurrent) {
-      actionHtml = `<a class="service-button" href="./bingo-room.html?id=${encodeURIComponent(room.id)}">들어가기</a>`;
+      actionHtml = `<a class="service-button" href="./bingo-room.html">들어가기</a>`;
     } else if (isOwner) {
       actionHtml = `<span class="room-blocked-text">내 방이지만 현재 상태를 확인해주세요.</span>`;
     } else if (currentMembership) {
@@ -340,7 +340,7 @@ async function joinRoom(roomId) {
       });
     });
 
-    location.href = `./bingo-room.html?id=${encodeURIComponent(roomId)}`;
+    location.href = "./bingo-room.html";
   } catch (error) {
     console.error(error);
     if (error.message === "ALREADY_IN_ROOM") {
@@ -426,6 +426,7 @@ async function createRoom(event) {
       transaction.set(boardRef, {
         checkedCells: {},
         imagePath: "",
+        chickenCount: 0,
         updatedAt: serverTimestamp()
       });
     });
@@ -440,7 +441,7 @@ async function createRoom(event) {
       imageUploadStatus.textContent = "사진 업로드가 완료됐습니다.";
     }
 
-    location.href = `./bingo-room.html?id=${encodeURIComponent(roomRef.id)}`;
+    location.href = "./bingo-room.html";
   } catch (error) {
     console.error(error);
 

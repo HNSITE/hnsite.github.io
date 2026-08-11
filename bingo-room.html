@@ -17,7 +17,7 @@
     })();
   </script>
   <title>빙고방 | CHURANG</title>
-  <link rel="stylesheet" href="./assets/styles.css?v=16" />
+  <link rel="stylesheet" href="./assets/styles.css?v=17" />
 </head>
 <body class="app-page bingo-room-page">
   <header class="topbar app-topbar">
@@ -85,6 +85,39 @@
           <h2>빙고판</h2>
           <span id="boardPermission" class="access-pill"></span>
         </div>
+
+        <div class="bingo-status-grid" aria-label="빙고 진행 현황">
+          <div class="bingo-status-card">
+            <span>완성 빙고</span>
+            <strong><span id="completedBingoCount">0</span>줄</strong>
+          </div>
+          <div class="bingo-status-card">
+            <span>체크된 칸</span>
+            <strong id="checkedCellCount">0 / 0</strong>
+          </div>
+          <div class="bingo-status-card">
+            <span>남은 칸</span>
+            <strong><span id="remainingCellCount">0</span>칸</strong>
+          </div>
+          <div class="bingo-status-card chicken-status-card">
+            <span>총 치킨</span>
+            <strong><span id="chickenCount">0</span>치킨</strong>
+          </div>
+        </div>
+
+        <div class="bingo-board-toolbar">
+          <div class="bingo-toolbar-group">
+            <span class="bingo-toolbar-label">빙고판</span>
+            <button id="selectAllCellsButton" class="secondary compact-button" type="button">전체 선택</button>
+            <button id="clearAllCellsButton" class="danger-outline compact-button" type="button">전체 해제</button>
+          </div>
+          <div class="bingo-toolbar-group chicken-toolbar-group">
+            <span class="bingo-toolbar-label">먹은 치킨 수량</span>
+            <button id="decreaseChickenButton" class="secondary compact-button chicken-step-button" type="button">-1</button>
+            <button id="increaseChickenButton" class="secondary compact-button chicken-step-button" type="button">+1</button>
+          </div>
+        </div>
+
         <div class="board-scroll-wrap">
           <div id="bingoBoard" class="bingo-board" aria-label="빙고판"></div>
         </div>
@@ -92,6 +125,6 @@
     </div>
   </main>
 
-  <script type="module" src="./js/bingo-room.js?v=16"></script>
+  <script type="module" src="./js/bingo-room.js?v=17"></script>
 </body>
 </html>

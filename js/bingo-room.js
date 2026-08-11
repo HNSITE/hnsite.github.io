@@ -16,12 +16,17 @@ import {
   getDownloadURL,
   ref as storageRef
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
-import { initUserManagementModal } from "./admin-modal.js?v=16";
+import { initUserManagementModal } from "./admin-modal.js?v=17";
 import { showConfirm, showNotice } from "./ui-dialog.js?v=14";
 
-const params = new URLSearchParams(location.search);
-const roomId = params.get("id");
-const boardImageRef = roomId ? storageRef(storage, `bingoImages/${roomId}/board.webp`) : null;
+// 빙고방 ID는 URL에 노출하지 않고 현재 사용자의 참가정보에서 확인합니다.
+// 이전 버전의 ?id=... 주소로 들어와도 화면에 남지 않게 정리합니다.
+if (location.search) {
+  window.history.replaceState(null, "", location.pathname + location.hash);
+}
+
+let roomId = null;
+let boardImageRef = null;
 
 const loadingPanel = document.getElementById("loadingPanel");
 const roomContent = document.getElementById("roomContent");
@@ -37,6 +42,14 @@ const currentParticipantSearch = document.getElementById("currentParticipantSear
 const availableParticipantSearch = document.getElementById("availableParticipantSearch");
 const currentParticipantPagination = document.getElementById("currentParticipantPagination");
 const availableParticipantPagination = document.getElementById("availableParticipantPagination");
+const completedBingoCount = document.getElementById("completedBingoCount");
+const checkedCellCount = document.getElementById("checkedCellCount");
+const remainingCellCount = document.getElementById("remainingCellCount");
+const chickenCount = document.getElementById("chickenCount");
+const selectAllCellsButton = document.getElementById("selectAllCellsButton");
+const clearAllCellsButton = document.getElementById("clearAllCellsButton");
+const decreaseChickenButton = document.getElementById("decreaseChickenButton");
+const increaseChickenButton = document.getElementById("increaseChickenButton");
 
 let currentUser = null;
 let currentProfile = null;
@@ -95,13 +108,15 @@ async function loadProfile(user) {
 }
 
 async function loadRoomAndMembership() {
-  if (!roomId) throw new Error("빙고방 주소가 올바르지 않습니다.");
-
   const membershipSnap = await getDoc(doc(db, "bingoMemberships", currentUser.uid));
-  if (!membershipSnap.exists() || membershipSnap.data().roomId !== roomId) {
-    throw new Error("현재 참가 중인 빙고방이 아닙니다. 빙고 목록에서 먼저 참가해주세요.");
+  if (!membershipSnap.exists()) {
+    throw new Error("현재 참가 중인 빙고방이 없습니다. 빙고 목록에서 먼저 참가해주세요.");
   }
+
   membership = membershipSnap.data();
+  roomId = membership.roomId || null;
+  if (!roomId) throw new Error("현재 참가정보가 올바르지 않습니다.");
+  boardImageRef = storageRef(storage, `bingoImages/${roomId}/board.webp`);
 
   const roomSnap = await getDoc(doc(db, "bingoRooms", roomId));
   if (!roomSnap.exists()) throw new Error("삭제되었거나 존재하지 않는 빙고방입니다.");
@@ -175,6 +190,132 @@ function getCellBackgroundPosition(index, size) {
   return `${x}% ${y}%`;
 }
 
+function getBoardProgress() {
+  const size = Number(roomData?.size) || 0;
+  const total = size * size;
+  const checkedCells = boardData?.checkedCells || {};
+  const checkedIndexes = new Set();
+
+  for (let index = 0; index < total; index += 1) {
+    if (checkedCells[String(index)] === true) checkedIndexes.add(index);
+  }
+
+  let completed = 0;
+  if (size > 0) {
+    for (let row = 0; row < size; row += 1) {
+      let rowComplete = true;
+      for (let col = 0; col < size; col += 1) {
+        if (!checkedIndexes.has(row * size + col)) {
+          rowComplete = false;
+          break;
+        }
+      }
+      if (rowComplete) completed += 1;
+    }
+
+    for (let col = 0; col < size; col += 1) {
+      let colComplete = true;
+      for (let row = 0; row < size; row += 1) {
+        if (!checkedIndexes.has(row * size + col)) {
+          colComplete = false;
+          break;
+        }
+      }
+      if (colComplete) completed += 1;
+    }
+
+    let mainDiagonal = true;
+    let antiDiagonal = true;
+    for (let index = 0; index < size; index += 1) {
+      if (!checkedIndexes.has(index * size + index)) mainDiagonal = false;
+      if (!checkedIndexes.has(index * size + (size - 1 - index))) antiDiagonal = false;
+    }
+    if (mainDiagonal) completed += 1;
+    if (antiDiagonal) completed += 1;
+  }
+
+  const checked = checkedIndexes.size;
+  return {
+    total,
+    checked,
+    remaining: Math.max(0, total - checked),
+    completed,
+    chicken: Math.max(0, Number(boardData?.chickenCount) || 0)
+  };
+}
+
+function renderBoardStatus() {
+  const progress = getBoardProgress();
+  completedBingoCount.textContent = String(progress.completed);
+  checkedCellCount.textContent = `${progress.checked} / ${progress.total}`;
+  remainingCellCount.textContent = String(progress.remaining);
+  chickenCount.textContent = String(progress.chicken);
+
+  const disabled = !canWriteBoard();
+  selectAllCellsButton.disabled = disabled || progress.total === 0 || progress.checked === progress.total;
+  clearAllCellsButton.disabled = disabled || progress.checked === 0;
+  decreaseChickenButton.disabled = disabled || progress.chicken <= 0;
+  increaseChickenButton.disabled = disabled || progress.chicken >= 999;
+}
+
+async function setAllCells(checked) {
+  if (!canWriteBoard() || !roomId) return;
+
+  if (!checked) {
+    const confirmed = await showConfirm(
+      "현재 체크된 모든 칸이 해제됩니다.",
+      { title: "빙고판 전체 해제", confirmText: "전체 해제", danger: true }
+    );
+    if (!confirmed) return;
+  }
+
+  const boardRef = doc(db, "bingoBoards", roomId);
+  const size = Number(roomData?.size) || 0;
+  const total = size * size;
+  const nextCheckedCells = {};
+  if (checked) {
+    for (let index = 0; index < total; index += 1) {
+      nextCheckedCells[String(index)] = true;
+    }
+  }
+
+  try {
+    await runTransaction(db, async (transaction) => {
+      const boardSnap = await transaction.get(boardRef);
+      if (!boardSnap.exists()) throw new Error("빙고판 정보를 찾을 수 없습니다.");
+      transaction.update(boardRef, {
+        checkedCells: nextCheckedCells,
+        updatedAt: serverTimestamp()
+      });
+    });
+  } catch (error) {
+    console.error(error);
+    setMessage(checked ? "전체 선택에 실패했습니다." : "전체 해제에 실패했습니다.");
+  }
+}
+
+async function changeChickenCount(delta) {
+  if (!canWriteBoard() || !roomId) return;
+
+  const boardRef = doc(db, "bingoBoards", roomId);
+  try {
+    await runTransaction(db, async (transaction) => {
+      const boardSnap = await transaction.get(boardRef);
+      if (!boardSnap.exists()) throw new Error("빙고판 정보를 찾을 수 없습니다.");
+
+      const current = Math.max(0, Number(boardSnap.data().chickenCount) || 0);
+      const next = Math.min(999, Math.max(0, current + delta));
+      transaction.update(boardRef, {
+        chickenCount: next,
+        updatedAt: serverTimestamp()
+      });
+    });
+  } catch (error) {
+    console.error(error);
+    setMessage("치킨 수량을 저장하지 못했습니다.");
+  }
+}
+
 function renderBoard() {
   if (!roomData || !boardData) return;
 
@@ -218,6 +359,7 @@ function renderBoard() {
   }
 
   bingoBoard.appendChild(fragment);
+  renderBoardStatus();
 }
 
 async function toggleCell(index) {
@@ -566,6 +708,11 @@ function startRealtimeListeners() {
     if (data.roomId !== roomId) location.replace("./bingo.html");
   });
 }
+
+selectAllCellsButton.addEventListener("click", () => setAllCells(true));
+clearAllCellsButton.addEventListener("click", () => setAllCells(false));
+decreaseChickenButton.addEventListener("click", () => changeChickenCount(-1));
+increaseChickenButton.addEventListener("click", () => changeChickenCount(1));
 
 currentParticipantSearch.addEventListener("input", () => {
   currentParticipantSearchTerm = currentParticipantSearch.value.trim();

@@ -1,12 +1,19 @@
-import { db } from "./firebase-config.js";
+import { db, storage } from "./firebase-config.js";
 import {
   collection,
   deleteDoc,
   doc,
   getDoc,
   getDocs,
-  updateDoc
+  query,
+  serverTimestamp,
+  updateDoc,
+  where
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+import {
+  deleteObject,
+  ref as storageRef
+} from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
 import { showConfirm, showNotice } from "./ui-dialog.js?v=14";
 
 const PAGE_SIZE = 10;
@@ -338,41 +345,80 @@ function addCell(row, content) {
   row.appendChild(cell);
 }
 
+async function deleteRoomImageForAdmin(roomId) {
+  try {
+    await deleteObject(storageRef(storage, `bingoImages/${roomId}/board.webp`));
+  } catch (error) {
+    if (error?.code !== "storage/object-not-found") throw error;
+  }
+}
+
+async function deleteActiveMembershipIfMatches(uid, roomId) {
+  const membershipRef = doc(db, "bingoMemberships", uid);
+  const snap = await getDoc(membershipRef);
+  if (!snap.exists()) return;
+  if (snap.data().roomId === roomId) await deleteDoc(membershipRef);
+}
+
+async function cascadeDeleteManagedUser(user) {
+  const roomsRef = collection(db, "bingoRooms");
+  const [ownedSnap, invitedSnap] = await Promise.all([
+    getDocs(query(roomsRef, where("ownerUid", "==", user.uid))),
+    getDocs(query(roomsRef, where("participantUids", "array-contains", user.uid)))
+  ]);
+
+  const ownedRooms = ownedSnap.docs.map((item) => ({ id: item.id, ...item.data() }));
+  const ownedRoomIds = new Set(ownedRooms.map((room) => room.id));
+  const invitedRooms = invitedSnap.docs
+    .map((item) => ({ id: item.id, ...item.data() }))
+    .filter((room) => !ownedRoomIds.has(room.id));
+
+  // 삭제 대상이 방장인 방은 사진, 참가상태, 빙고판, 방 순서로 정리합니다.
+  for (const room of ownedRooms) {
+    await deleteRoomImageForAdmin(room.id);
+
+    for (const participantUid of room.participantUids || []) {
+      await deleteActiveMembershipIfMatches(participantUid, room.id);
+    }
+
+    await deleteDoc(doc(db, "bingoBoards", room.id));
+    await deleteDoc(doc(db, "bingoRooms", room.id));
+  }
+
+  // 다른 방에 초대만 되어 있던 기록도 참가자 목록에서 제거합니다.
+  for (const room of invitedRooms) {
+    const nextParticipants = (room.participantUids || []).filter((uid) => uid !== user.uid);
+    await updateDoc(doc(db, "bingoRooms", room.id), {
+      participantUids: nextParticipants,
+      updatedAt: serverTimestamp()
+    });
+  }
+
+  // 대상 사용자의 현재 참가 상태는 방장/참가자 여부와 관계없이 마지막에 정리합니다.
+  await deleteDoc(doc(db, "bingoMemberships", user.uid));
+  await deleteDoc(doc(db, "users", user.uid));
+}
+
 async function deleteManagedUser(user) {
   if (user.role !== "user") {
     await showNotice("일반 사용자만 삭제할 수 있습니다.");
     return;
   }
 
-  try {
-    const membershipSnap = await getDoc(doc(db, "bingoMemberships", user.uid));
-    if (membershipSnap.exists()) {
-      await showNotice(
-        "현재 빙고방 참여 정보가 남아 있어 삭제할 수 없습니다. 해당 사용자가 방에서 나가거나, 자신이 만든 방을 삭제한 뒤 다시 시도해주세요.",
-        "사용자 삭제 불가"
-      );
-      return;
-    }
-  } catch (error) {
-    console.error(error);
-    await showNotice("사용자의 빙고 참여 상태를 확인하지 못했습니다.");
-    return;
-  }
-
   const label = user.name || user.email || "선택한 사용자";
   const confirmed = await showConfirm(
-    `${label} 사용자를 삭제할까요?\n\n서비스 사용자 정보가 삭제되며, 같은 Google 계정으로 다시 접속하면 승인 요청을 다시 할 수 있습니다.`,
-    { title: "사용자 삭제", confirmText: "삭제", danger: true }
+    `${label} 사용자를 삭제할까요?\n\n해당 사용자가 만든 빙고방, 빙고판, 사진, 참가정보와 다른 방의 초대 기록까지 함께 삭제됩니다.`,
+    { title: "사용자 및 연동 데이터 삭제", confirmText: "전체 삭제", danger: true }
   );
   if (!confirmed) return;
 
   try {
-    await deleteDoc(doc(db, "users", user.uid));
+    await cascadeDeleteManagedUser(user);
     await loadUsers();
-    await showNotice("사용자를 삭제했습니다.");
+    await showNotice("사용자와 연동된 빙고 데이터를 모두 삭제했습니다.");
   } catch (error) {
     console.error(error);
-    await showNotice("사용자 삭제에 실패했습니다. Firestore 규칙이 최신인지 확인해주세요.");
+    await showNotice("사용자 연동 데이터 삭제에 실패했습니다. Firestore/Storage 규칙이 최신인지 확인해주세요.");
   }
 }
 
