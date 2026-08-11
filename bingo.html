@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script>
+    (() => {
+      const url = new URL(window.location.href);
+      if (!url.searchParams.has("_fresh")) {
+        url.searchParams.set("_fresh", Date.now().toString());
+        window.location.replace(url.toString());
+        return;
+      }
+      url.searchParams.delete("_fresh");
+      const query = url.searchParams.toString();
+      window.history.replaceState(null, "", url.pathname + (query ? `?${query}` : "") + url.hash);
+    })();
+  </script>
+  <title>빙고 | CHURANG</title>
+  <link rel="stylesheet" href="./assets/styles.css?v=6" />
+</head>
+<body class="app-page">
+  <header class="topbar app-topbar">
+    <a class="topbar-brand" href="./app.html">CHURANG</a>
+    <nav class="topbar-user" aria-label="사용자 메뉴">
+      <a class="topbar-link active" href="./bingo.html">빙고</a>
+      <a class="topbar-link" href="./app.html">메인</a>
+      <span id="userEmail" class="topbar-email"></span>
+      <span id="roleBadge" class="badge"></span>
+      <button id="logoutButton" class="secondary compact-button" type="button">로그아웃</button>
+    </nav>
+  </header>
+
+  <main class="page-wrap bingo-lobby-wrap">
+    <section id="loadingPanel" class="panel">
+      <h2>빙고 정보를 확인하고 있습니다...</h2>
+    </section>
+
+    <div id="bingoContent" class="hidden">
+      <section class="bingo-lobby-hero">
+        <div>
+          <p class="eyebrow">BINGO</p>
+          <h1>빙고</h1>
+          <p class="muted">빙고방을 만들거나 초대받은 방에 참가할 수 있어요.</p>
+        </div>
+        <a class="secondary-link-button" href="./app.html">메인으로</a>
+      </section>
+
+      <section id="currentRoomPanel" class="panel current-room-panel">
+        <div class="section-title-row">
+          <div>
+            <p class="eyebrow">MY ROOM</p>
+            <h2>현재 참여 상태</h2>
+          </div>
+          <span id="bingoPermissionBadge" class="access-pill"></span>
+        </div>
+        <div id="currentRoomContent" class="current-room-empty">
+          현재 참여 중인 빙고방이 없습니다.
+        </div>
+      </section>
+
+      <section class="panel lobby-action-panel">
+        <div class="lobby-action-buttons">
+          <button id="showCreateButton" type="button">생성하기</button>
+          <button id="showJoinButton" type="button" class="secondary">참가하기</button>
+        </div>
+        <p id="lobbyMessage" class="message"></p>
+      </section>
+
+      <section id="createPanel" class="panel hidden">
+        <div class="section-title-row">
+          <div>
+            <p class="eyebrow">CREATE</p>
+            <h2>빙고방 생성하기</h2>
+          </div>
+          <button id="closeCreateButton" class="secondary compact-button" type="button">닫기</button>
+        </div>
+
+        <form id="createRoomForm" class="bingo-create-form">
+          <label>
+            빙고 이름
+            <input id="roomName" type="text" maxlength="30" placeholder="예: 8월 빙고" required />
+          </label>
+
+          <label>
+            빙고판 크기
+            <select id="roomSize" required>
+              <option value="3">3 × 3</option>
+              <option value="4">4 × 4</option>
+              <option value="5" selected>5 × 5</option>
+              <option value="10">10 × 10</option>
+              <option value="20">20 × 20</option>
+              <option value="50">50 × 50</option>
+              <option value="100">100 × 100</option>
+            </select>
+          </label>
+
+          <div class="image-policy-box">
+            <div>
+              <strong>빙고 사진</strong>
+              <p>사진 저장 기능은 Firebase Storage 요금제 변경 후 연결합니다.</p>
+            </div>
+            <input id="roomImage" type="file" accept="image/*" disabled />
+            <ul>
+              <li>방당 사진 1장만 저장</li>
+              <li>업로드 전 자동 리사이즈·압축</li>
+              <li>압축 후 최대 2MB만 허용</li>
+              <li>새 사진은 같은 파일에 덮어쓰기</li>
+              <li>방 삭제 시 사진도 함께 삭제</li>
+            </ul>
+          </div>
+
+          <fieldset class="participant-fieldset">
+            <legend>참가자 선택</legend>
+            <p class="muted participant-help">선택된 사용자만 이 방의 참가 목록을 볼 수 있습니다. 실제 입장은 한 번에 한 방만 가능합니다.</p>
+            <div id="participantList" class="participant-list">
+              참가 가능한 사용자를 불러오는 중...
+            </div>
+          </fieldset>
+
+          <div class="form-footer-row">
+            <p class="muted">방을 만든 사람은 자동으로 방장이 되며, 다른 방에 참가하려면 자신의 방을 먼저 삭제해야 합니다.</p>
+            <button id="createRoomButton" type="submit">빙고방 생성</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="joinPanel" class="panel hidden">
+        <div class="section-title-row">
+          <div>
+            <p class="eyebrow">JOIN</p>
+            <h2>참가 가능한 빙고</h2>
+          </div>
+          <button id="refreshRoomsButton" class="secondary compact-button" type="button">새로고침</button>
+        </div>
+        <div id="roomList" class="bingo-room-list"></div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="./js/bingo.js?v=6"></script>
+</body>
+</html>
