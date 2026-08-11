@@ -46,7 +46,7 @@ async function handleAuthenticatedUser(user) {
   const profile = await getProfile(user.uid);
 
   if (profile?.status === "approved") {
-    location.replace("./app.html");
+    location.replace(`./app.html?_fresh=${Date.now()}`);
     return;
   }
 
