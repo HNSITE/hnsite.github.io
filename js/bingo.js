@@ -1,4 +1,4 @@
-import { auth, db, storage } from "./firebase-config.js?v=7";
+import { auth, db, storage } from "./firebase-config.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
 import {
   collection,
@@ -17,6 +17,7 @@ import {
   uploadBytes
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
 import { BINGO_IMAGE_POLICY, compressBingoImage } from "./image-policy.js?v=7";
+import { initUserManagementModal } from "./admin-modal.js?v=9";
 
 const loadingPanel = document.getElementById("loadingPanel");
 const bingoContent = document.getElementById("bingoContent");
@@ -479,6 +480,7 @@ onAuthStateChanged(auth, async (user) => {
   try {
     currentUser = user;
     currentProfile = await loadProfile(user);
+    initUserManagementModal(currentProfile);
 
     document.getElementById("userEmail").textContent = user.email || "";
     document.getElementById("roleBadge").textContent = roleLabel(currentProfile.role);

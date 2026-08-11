@@ -11,17 +11,18 @@
         window.location.replace(url.toString());
         return;
       }
-      window.history.replaceState(null, "", window.location.pathname + window.location.hash);
+      url.searchParams.delete("_fresh");
+      const query = url.searchParams.toString();
+      window.history.replaceState(null, "", url.pathname + (query ? `?${query}` : "") + url.hash);
     })();
   </script>
   <title>CHURANG</title>
-  <link rel="stylesheet" href="./assets/styles.css?v=5" />
+  <link rel="stylesheet" href="./assets/styles.css?v=9" />
 </head>
 <body class="app-page">
   <header class="topbar app-topbar">
     <a class="topbar-brand" href="./app.html">CHURANG</a>
     <nav class="topbar-user" aria-label="사용자 메뉴">
-      <a id="userManageLink" class="topbar-link hidden" href="./users.html">사용자 관리</a>
       <span id="userEmail" class="topbar-email"></span>
       <span id="roleBadge" class="badge"></span>
       <button id="logoutButton" class="secondary compact-button" type="button">로그아웃</button>
@@ -51,12 +52,12 @@
           <div class="service-icon" aria-hidden="true">✎</div>
           <h2>킬내기</h2>
           <p id="killAccess" class="service-access"></p>
-          <a id="killButton" class="service-button" href="./kill.html">들어가기</a>
+          <a id="killButton" class="service-button" href="#">들어가기</a>
         </article>
       </div>
     </section>
   </main>
 
-  <script type="module" src="./js/app.js?v=5"></script>
+  <script type="module" src="./js/app.js?v=9"></script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 import { auth, db } from "./firebase-config.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+import { initUserManagementModal } from "./admin-modal.js?v=9";
 
 const feature = document.body.dataset.feature;
 const loadingPanel = document.getElementById("loadingPanel");
@@ -30,6 +31,7 @@ onAuthStateChanged(auth, async (user) => {
 
   try {
     const profile = await loadProfile(user);
+    if (isManager(profile)) initUserManagementModal(profile);
     const field = feature === "bingo" ? "bingoAccess" : "killSheetAccess";
     const access = isManager(profile) ? "write" : (profile[field] || "none");
 

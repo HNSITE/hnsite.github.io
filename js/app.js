@@ -1,10 +1,10 @@
 import { auth, db } from "./firebase-config.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+import { initUserManagementModal } from "./admin-modal.js?v=9";
 
 const loadingPanel = document.getElementById("loadingPanel");
 const appContent = document.getElementById("appContent");
-const userManageLink = document.getElementById("userManageLink");
 
 const roleLabel = (value) => ({
   super_admin: "최고관리자",
@@ -66,7 +66,14 @@ onAuthStateChanged(auth, async (user) => {
     document.getElementById("welcomeText").textContent = `${profile.name || user.displayName || "사용자"}님, 반가워요.`;
 
     if (isManager(profile)) {
-      userManageLink.classList.remove("hidden");
+      const userManagement = initUserManagementModal(profile);
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("users") === "1") {
+        await userManagement.open();
+        params.delete("users");
+        const nextQuery = params.toString();
+        window.history.replaceState(null, "", window.location.pathname + (nextQuery ? `?${nextQuery}` : ""));
+      }
     }
 
     applyServiceAccess(profile, "bingoAccess", "bingoAccess", "bingoButton", "bingoCard");
@@ -92,4 +99,11 @@ onAuthStateChanged(auth, async (user) => {
 document.getElementById("logoutButton").addEventListener("click", async () => {
   await signOut(auth);
   location.replace("./index.html");
+});
+
+
+document.getElementById("killButton").addEventListener("click", (event) => {
+  if (event.currentTarget.classList.contains("disabled")) return;
+  event.preventDefault();
+  alert("준비중입니다.");
 });

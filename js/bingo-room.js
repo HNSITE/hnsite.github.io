@@ -1,4 +1,4 @@
-import { auth, db, storage } from "./firebase-config.js?v=7";
+import { auth, db, storage } from "./firebase-config.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
 import {
   deleteDoc,
@@ -15,6 +15,7 @@ import {
   getDownloadURL,
   ref as storageRef
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
+import { initUserManagementModal } from "./admin-modal.js?v=9";
 
 const params = new URLSearchParams(location.search);
 const roomId = params.get("id");
@@ -413,6 +414,7 @@ onAuthStateChanged(auth, async (user) => {
     currentUser = user;
     currentProfile = await loadProfile(user);
     access = currentProfile.resolvedAccess;
+    initUserManagementModal(currentProfile);
 
     document.getElementById("userEmail").textContent = user.email || "";
     document.getElementById("roleBadge").textContent = roleLabel(currentProfile.role);
