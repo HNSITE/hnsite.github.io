@@ -327,6 +327,7 @@ function renderBoard() {
   bingoBoard.innerHTML = "";
   bingoBoard.style.setProperty("--bingo-size", size);
   bingoBoard.style.setProperty("--bingo-cell-size", `${minCell}px`);
+  bingoBoard.classList.toggle("image-mode", Boolean(boardImageUrl));
 
   const fragment = document.createDocumentFragment();
 
@@ -337,6 +338,7 @@ function renderBoard() {
     cell.className = `bingo-cell${checked ? " checked" : ""}`;
     cell.dataset.index = String(index);
     cell.setAttribute("aria-pressed", checked ? "true" : "false");
+    cell.setAttribute("aria-label", `${index + 1}번 ${checked ? "선택됨" : "선택 안 됨"}`);
     cell.disabled = !canWriteBoard();
 
     if (checked && boardImageUrl) {
@@ -346,9 +348,10 @@ function renderBoard() {
       cell.style.backgroundPosition = getCellBackgroundPosition(index, size);
       cell.textContent = "";
     } else {
-      cell.innerHTML = checked
-        ? `<span class="cell-check-mark">✓</span>`
-        : `<span class="cell-number">${index + 1}</span>`;
+      cell.innerHTML = `
+        <span class="cell-number">${index + 1}</span>
+        ${checked ? '<span class="cell-check-badge" aria-hidden="true">✓</span>' : ''}
+      `;
     }
 
     if (canWriteBoard()) {
