@@ -47,11 +47,9 @@ hr{border:0;border-top:1px solid #e5e7eb;margin:24px 0}.sub-title{font-size:18px
 /* v17 bingo room progress and controls */
 .bingo-status-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px}.bingo-status-card{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 14px;border:1px solid #e6e0ed;border-radius:15px;background:#faf9fc}.bingo-status-card>span{color:#81788c;font-size:12px;font-weight:800}.bingo-status-card strong{color:#463d52;font-size:18px;white-space:nowrap}.chicken-status-card{background:#fffaf2;border-color:#f0dfc0}.bingo-board-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid #e8e3ef;border-radius:15px;background:#fff}.bingo-toolbar-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.bingo-toolbar-label{margin-right:2px;color:#71687c;font-size:12px;font-weight:900}.chicken-step-button{min-width:54px}.bingo-board-toolbar button:disabled{opacity:.45;cursor:not-allowed}.bingo-board-panel .board-scroll-wrap{margin-top:12px}
 @media(max-width:760px){.bingo-status-grid{grid-template-columns:1fr 1fr}.bingo-status-card{padding:11px 12px}.bingo-status-card strong{font-size:16px}.bingo-board-toolbar{align-items:stretch;flex-direction:column}.bingo-toolbar-group{justify-content:space-between}.bingo-toolbar-label{flex:1 0 100%;margin-bottom:2px}.chicken-toolbar-group .bingo-toolbar-label{flex:1 0 auto;margin-bottom:0}.chicken-toolbar-group{justify-content:flex-start}}
-/* v20: 사진 없는 체크 칸은 번호를 유지하고, 사진 모드의 이미지 조각은 끊김 없이 연결 */
+/* v21: 사진 없는 체크 칸은 번호를 유지하고 색상으로만 상태를 구분, 사진 모드는 이미지 조각을 연결 */
 .bingo-cell.checked:not(.has-image) .cell-number{font-size:clamp(12px,1.6vw,18px);font-weight:900;color:#6047aa}
-.cell-check-badge{position:absolute;top:4px;right:4px;display:flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:#765bc2;color:#fff;font-size:10px;font-weight:900;line-height:1}
 .bingo-board.image-mode{gap:0}
 .bingo-board.image-mode .bingo-cell{border:0;border-radius:0;box-shadow:inset 0 0 0 1px rgba(124,113,139,.18)}
 .bingo-board.image-mode .bingo-cell.has-image{box-shadow:none}
 .bingo-board.image-mode .bingo-cell:hover:not(:disabled){transform:none;outline:2px solid rgba(128,100,203,.45);outline-offset:-2px;z-index:1}
-@media(max-width:760px){.cell-check-badge{top:3px;right:3px;min-width:14px;height:14px;padding:0 3px;font-size:9px}}

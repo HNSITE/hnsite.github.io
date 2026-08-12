@@ -348,10 +348,7 @@ function renderBoard() {
       cell.style.backgroundPosition = getCellBackgroundPosition(index, size);
       cell.textContent = "";
     } else {
-      cell.innerHTML = `
-        <span class="cell-number">${index + 1}</span>
-        ${checked ? '<span class="cell-check-badge" aria-hidden="true">✓</span>' : ''}
-      `;
+      cell.innerHTML = `<span class="cell-number">${index + 1}</span>`;
     }
 
     if (canWriteBoard()) {
