@@ -411,92 +411,7 @@ async function loadChannels() {
 
     return;
   }
-async function requestChannelCreation() {
-  if (
-    !currentUser ||
-    !currentProfile ||
-    isDeveloper(currentProfile)
-  ) {
-    return;
-  }
 
-  requestChannelCreationButton.disabled = true;
-  requestChannelCreationButton.textContent = "신청 중...";
-
-  try {
-    const requestRef =
-      doc(
-        db,
-        "channelCreationRequests",
-        currentUser.uid
-      );
-
-    const existing =
-      await getDoc(requestRef);
-
-    if (
-      existing.exists() &&
-      existing.data().status === "pending"
-    ) {
-      setMessage(
-        "이미 채널 생성 신청이 접수되어 있습니다."
-      );
-
-      return;
-    }
-
-    await setDoc(
-      requestRef,
-      {
-        requesterUid:
-          currentUser.uid,
-
-        requesterName:
-          currentProfile.name ||
-          currentUser.displayName ||
-          currentUser.email ||
-          "사용자",
-
-        requesterEmail:
-          currentUser.email || "",
-
-        status:
-          "pending",
-
-        createdAt:
-          existing.exists()
-            ? existing.data().createdAt
-            : serverTimestamp(),
-
-        updatedAt:
-          serverTimestamp()
-      },
-      {
-        merge: true
-      }
-    );
-
-    setMessage(
-      "채널 생성 신청이 완료되었습니다. 개발자가 확인 후 채널을 생성합니다.",
-      true
-    );
-
-  } catch (error) {
-    console.error(error);
-
-    setMessage(
-      firebaseErrorMessage(
-        error,
-        "채널 생성 신청에 실패했습니다."
-      )
-    );
-
-  } finally {
-    requestChannelCreationButton.disabled = false;
-    requestChannelCreationButton.textContent =
-      "채널 생성 신청하기";
-  }
-}
 
   /*
    * 일반 사용자
@@ -651,6 +566,104 @@ async function requestChannelCreation() {
 }
 
 
+/* =========================================
+   채널 생성 신청
+========================================= */
+
+async function requestChannelCreation() {
+  if (
+    !currentUser ||
+    !currentProfile ||
+    isDeveloper(currentProfile)
+  ) {
+    return;
+  }
+
+  const button =
+    requestChannelCreationButton;
+
+  button.disabled = true;
+  button.textContent = "신청 중...";
+
+  try {
+    const requestRef =
+      doc(
+        db,
+        "channelCreationRequests",
+        currentUser.uid
+      );
+
+    const existing =
+      await getDoc(requestRef);
+
+    if (
+      existing.exists() &&
+      existing.data().status === "pending"
+    ) {
+      setMessage(
+        "이미 채널 생성 신청이 접수되어 있습니다."
+      );
+
+      return;
+    }
+
+    await setDoc(
+      requestRef,
+      {
+        requesterUid:
+          currentUser.uid,
+
+        requesterName:
+          currentProfile.name ||
+          currentUser.displayName ||
+          currentUser.email ||
+          "사용자",
+
+        requesterEmail:
+          currentUser.email || "",
+
+        status:
+          "pending",
+
+        createdAt:
+          serverTimestamp(),
+
+        updatedAt:
+          serverTimestamp()
+      }
+    );
+
+    setMessage(
+      "채널 생성 신청이 완료되었습니다.",
+      true
+    );
+
+  } catch (error) {
+    console.error(
+      "채널 생성 신청 실패",
+      error
+    );
+
+    setMessage(
+      firebaseErrorMessage(
+        error,
+        "채널 생성 신청에 실패했습니다."
+      )
+    );
+
+  } finally {
+    button.disabled = false;
+    button.textContent =
+      "채널 생성 신청하기";
+  }
+}
+
+
+requestChannelCreationButton
+  ?.addEventListener(
+    "click",
+    requestChannelCreation
+  );
 /* =========================================
    채널 카드
 ========================================= */
@@ -1226,11 +1239,7 @@ if (developer) {
   }
 );
 
-requestChannelCreationButton
-  ?.addEventListener(
-    "click",
-    requestChannelCreation
-  );
+
 
   function startChannelRequestWatcher() {
   if (
