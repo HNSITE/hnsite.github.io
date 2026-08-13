@@ -1,11 +1,11 @@
 import { auth, db, storage } from "./firebase-config.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
 import {
+  collection,
   deleteDoc,
   doc,
   getDoc,
   getDocs,
-  collection,
   onSnapshot,
   runTransaction,
   serverTimestamp,
@@ -16,23 +16,25 @@ import {
   getDownloadURL,
   ref as storageRef
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
-import { initUserManagementModal } from "./admin-modal.js?v=24";
+import { initUserManagementModal } from "./admin-modal.js?v=25";
+import { firebaseErrorMessage } from "./error-messages.js?v=25";
 import { showConfirm, showNotice } from "./ui-dialog.js?v=14";
 
-// 빙고방 ID는 URL에 노출하지 않고 현재 사용자의 참가정보에서 확인합니다.
-// 이전 버전의 ?id=... 주소로 들어와도 화면에 남지 않게 정리합니다.
+// 빙고방 ID는 URL에 노출하지 않습니다.
 if (location.search) {
   window.history.replaceState(null, "", location.pathname + location.hash);
 }
 
 let roomId = null;
 let boardImageRef = null;
+let archiveMode = false;
 
 const loadingPanel = document.getElementById("loadingPanel");
 const roomContent = document.getElementById("roomContent");
 const bingoBoard = document.getElementById("bingoBoard");
 const roomActions = document.getElementById("roomActions");
 const roomMessage = document.getElementById("roomMessage");
+const roomClosedNotice = document.getElementById("roomClosedNotice");
 const participantManagePanel = document.getElementById("participantManagePanel");
 const currentParticipantList = document.getElementById("currentParticipantList");
 const availableParticipantList = document.getElementById("availableParticipantList");
@@ -48,8 +50,13 @@ const remainingCellCount = document.getElementById("remainingCellCount");
 const chickenCount = document.getElementById("chickenCount");
 const selectAllCellsButton = document.getElementById("selectAllCellsButton");
 const clearAllCellsButton = document.getElementById("clearAllCellsButton");
+const undoBoardButton = document.getElementById("undoBoardButton");
 const decreaseChickenButton = document.getElementById("decreaseChickenButton");
 const increaseChickenButton = document.getElementById("increaseChickenButton");
+const chickenHistoryButton = document.getElementById("chickenHistoryButton");
+const chickenHistoryPanel = document.getElementById("chickenHistoryPanel");
+const closeChickenHistoryButton = document.getElementById("closeChickenHistoryButton");
+const chickenHistoryList = document.getElementById("chickenHistoryList");
 
 let currentUser = null;
 let currentProfile = null;
@@ -61,9 +68,13 @@ let access = "none";
 let allUsers = [];
 let participantDraft = new Set();
 let participantDraftDirty = false;
+let participantMembershipMap = new Map();
 let roomUnsubscribe = null;
 let boardUnsubscribe = null;
 let membershipUnsubscribe = null;
+let chickenLogsUnsubscribe = null;
+let chickenLogs = [];
+let lastBoardUndo = null;
 let currentParticipantSearchTerm = "";
 let availableParticipantSearchTerm = "";
 let currentParticipantPage = 1;
@@ -77,8 +88,9 @@ const roleLabel = (value) => ({
 }[value] || value);
 
 const isManager = (profile) => ["super_admin", "admin"].includes(profile?.role);
-const isOwner = () => roomData?.ownerUid === currentUser?.uid && membership?.role === "owner";
-const canWriteBoard = () => access === "write";
+const isClosedRoom = () => roomData?.status === "closed";
+const isOwner = () => roomData?.ownerUid === currentUser?.uid && (archiveMode || membership?.role === "owner");
+const canWriteBoard = () => access === "write" && !archiveMode && !isClosedRoom();
 
 function setMessage(text, success = false) {
   roomMessage.textContent = text;
@@ -92,6 +104,13 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function mapsEqual(a, b) {
+  const ak = Object.keys(a || {}).sort();
+  const bk = Object.keys(b || {}).sort();
+  if (ak.length !== bk.length) return false;
+  return ak.every((key, index) => key === bk[index] && Boolean(a[key]) === Boolean(b[key]));
 }
 
 async function loadProfile(user) {
@@ -108,6 +127,29 @@ async function loadProfile(user) {
 }
 
 async function loadRoomAndMembership() {
+  const archiveRoomId = sessionStorage.getItem("churangArchiveRoomId");
+  if (archiveRoomId) {
+    const roomSnap = await getDoc(doc(db, "bingoRooms", archiveRoomId));
+    if (roomSnap.exists()) {
+      const candidate = { id: roomSnap.id, ...roomSnap.data() };
+      const allowed = candidate.ownerUid === currentUser.uid
+        || (candidate.participantUids || []).includes(currentUser.uid);
+      if (candidate.status === "closed" && allowed) {
+        archiveMode = true;
+        roomId = archiveRoomId;
+        membership = null;
+        roomData = candidate;
+        boardImageRef = storageRef(storage, `bingoImages/${roomId}/board.webp`);
+        const boardSnap = await getDoc(doc(db, "bingoBoards", roomId));
+        if (!boardSnap.exists()) throw new Error("빙고판 정보를 찾을 수 없습니다.");
+        boardData = boardSnap.data();
+        return;
+      }
+    }
+    sessionStorage.removeItem("churangArchiveRoomId");
+  }
+
+  archiveMode = false;
   const membershipSnap = await getDoc(doc(db, "bingoMemberships", currentUser.uid));
   if (!membershipSnap.exists()) {
     throw new Error("현재 참가 중인 빙고방이 없습니다. 빙고 목록에서 먼저 참가해주세요.");
@@ -121,6 +163,7 @@ async function loadRoomAndMembership() {
   const roomSnap = await getDoc(doc(db, "bingoRooms", roomId));
   if (!roomSnap.exists()) throw new Error("삭제되었거나 존재하지 않는 빙고방입니다.");
   roomData = { id: roomSnap.id, ...roomSnap.data() };
+  if (roomData.status === "closed") throw new Error("종료된 빙고방입니다. 빙고 목록에서 결과 보기를 이용해주세요.");
 
   const allowed = roomData.ownerUid === currentUser.uid
     || (roomData.participantUids || []).includes(currentUser.uid);
@@ -131,7 +174,6 @@ async function loadRoomAndMembership() {
   boardData = boardSnap.data();
 }
 
-
 async function loadBoardImage() {
   boardImageUrl = "";
   if (!boardImageRef) return;
@@ -141,7 +183,7 @@ async function loadBoardImage() {
   } catch (error) {
     if (error?.code === "storage/object-not-found") return;
     console.error(error);
-    setMessage("빙고 사진을 불러오지 못했습니다. 체크 상태는 계속 사용할 수 있습니다.");
+    setMessage(firebaseErrorMessage(error, "빙고 사진을 불러오지 못했습니다. 체크 상태는 계속 확인할 수 있습니다."));
   }
 }
 
@@ -157,13 +199,17 @@ function cellDisplayValue(index) {
 
 function renderRoomHeader() {
   document.getElementById("roomTitle").textContent = roomData.name || "빙고";
-  document.getElementById("roomMeta").textContent = `${roomData.size} × ${roomData.size} · ${roomBoardTypeLabel()} · 방장 ${roomData.ownerName || "-"}`;
-  document.getElementById("boardPermission").textContent = `권한: ${access === "write" ? "쓰기" : "읽기"}`;
+  const statusText = isClosedRoom() ? "종료" : "진행 중";
+  document.getElementById("roomMeta").textContent = `${roomData.size} × ${roomData.size} · ${roomBoardTypeLabel()} · ${statusText} · 방장 ${roomData.ownerName || "-"}`;
+  document.getElementById("boardPermission").textContent = isClosedRoom()
+    ? "권한: 결과 보기"
+    : `권한: ${access === "write" ? "쓰기" : "읽기"}`;
+  roomClosedNotice.classList.toggle("hidden", !isClosedRoom());
 
   roomActions.innerHTML = "";
 
   if (isOwner()) {
-    if (access === "write") {
+    if (!isClosedRoom() && access === "write") {
       const manageButton = document.createElement("button");
       manageButton.type = "button";
       manageButton.className = "secondary";
@@ -174,15 +220,22 @@ function renderRoomHeader() {
         manageButton.textContent = willOpen ? "참가자 관리 닫기" : "참가자 관리";
       });
       roomActions.appendChild(manageButton);
+
+      const closeButton = document.createElement("button");
+      closeButton.type = "button";
+      closeButton.className = "secondary room-close-button";
+      closeButton.textContent = "방 종료";
+      closeButton.addEventListener("click", closeRoom);
+      roomActions.appendChild(closeButton);
     }
 
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "danger";
-    deleteButton.textContent = "방 삭제";
+    deleteButton.textContent = isClosedRoom() ? "기록 삭제" : "방 삭제";
     deleteButton.addEventListener("click", deleteRoom);
     roomActions.appendChild(deleteButton);
-  } else {
+  } else if (!isClosedRoom()) {
     const leaveButton = document.createElement("button");
     leaveButton.type = "button";
     leaveButton.className = "danger-outline";
@@ -264,6 +317,7 @@ function renderBoardStatus() {
   const disabled = !canWriteBoard();
   selectAllCellsButton.disabled = disabled || progress.total === 0 || progress.checked === progress.total;
   clearAllCellsButton.disabled = disabled || progress.checked === 0;
+  undoBoardButton.disabled = disabled || !lastBoardUndo;
   decreaseChickenButton.disabled = disabled || progress.chicken <= 0;
   increaseChickenButton.disabled = disabled || progress.chicken >= 999;
 }
@@ -271,43 +325,82 @@ function renderBoardStatus() {
 async function setAllCells(checked) {
   if (!canWriteBoard() || !roomId) return;
 
-  if (!checked) {
-    const confirmed = await showConfirm(
-      "현재 체크된 모든 칸이 해제됩니다.",
-      { title: "빙고판 전체 해제", confirmText: "전체 해제", danger: true }
-    );
-    if (!confirmed) return;
-  }
+  const confirmed = await showConfirm(
+    checked
+      ? "현재 빙고판의 모든 칸이 선택됩니다. 필요하면 실행 취소로 한 번 되돌릴 수 있습니다."
+      : "현재 체크된 모든 칸이 해제됩니다. 필요하면 실행 취소로 한 번 되돌릴 수 있습니다.",
+    {
+      title: checked ? "빙고판 전체 선택" : "빙고판 전체 해제",
+      confirmText: checked ? "전체 선택" : "전체 해제",
+      danger: !checked
+    }
+  );
+  if (!confirmed) return;
 
   const boardRef = doc(db, "bingoBoards", roomId);
   const size = Number(roomData?.size) || 0;
   const total = size * size;
   const nextCheckedCells = {};
   if (checked) {
-    for (let index = 0; index < total; index += 1) {
-      nextCheckedCells[String(index)] = true;
-    }
+    for (let index = 0; index < total; index += 1) nextCheckedCells[String(index)] = true;
   }
 
+  let previousCheckedCells = null;
   try {
     await runTransaction(db, async (transaction) => {
       const boardSnap = await transaction.get(boardRef);
       if (!boardSnap.exists()) throw new Error("빙고판 정보를 찾을 수 없습니다.");
+      previousCheckedCells = { ...(boardSnap.data().checkedCells || {}) };
       transaction.update(boardRef, {
         checkedCells: nextCheckedCells,
         updatedAt: serverTimestamp()
       });
     });
+    lastBoardUndo = { before: previousCheckedCells || {}, after: nextCheckedCells };
+    renderBoardStatus();
+    setMessage(checked ? "전체 칸을 선택했습니다. 실행 취소로 되돌릴 수 있습니다." : "전체 칸을 해제했습니다. 실행 취소로 되돌릴 수 있습니다.", true);
   } catch (error) {
     console.error(error);
-    setMessage(checked ? "전체 선택에 실패했습니다." : "전체 해제에 실패했습니다.");
+    setMessage(firebaseErrorMessage(error, checked ? "전체 선택에 실패했습니다." : "전체 해제에 실패했습니다."));
+  }
+}
+
+async function undoLastBoardChange() {
+  if (!canWriteBoard() || !roomId || !lastBoardUndo) return;
+  const undo = lastBoardUndo;
+  const boardRef = doc(db, "bingoBoards", roomId);
+
+  try {
+    await runTransaction(db, async (transaction) => {
+      const boardSnap = await transaction.get(boardRef);
+      if (!boardSnap.exists()) throw new Error("빙고판 정보를 찾을 수 없습니다.");
+      const current = boardSnap.data().checkedCells || {};
+      if (!mapsEqual(current, undo.after)) throw new Error("BOARD_CHANGED");
+      transaction.update(boardRef, {
+        checkedCells: undo.before,
+        updatedAt: serverTimestamp()
+      });
+    });
+    lastBoardUndo = null;
+    renderBoardStatus();
+    setMessage("마지막 전체 선택/해제를 되돌렸습니다.", true);
+  } catch (error) {
+    console.error(error);
+    if (error.message === "BOARD_CHANGED") {
+      lastBoardUndo = null;
+      renderBoardStatus();
+      setMessage("다른 체크 변경이 있어 이전 전체 작업을 되돌릴 수 없습니다.");
+    } else {
+      setMessage(firebaseErrorMessage(error, "실행 취소에 실패했습니다."));
+    }
   }
 }
 
 async function changeChickenCount(delta) {
-  if (!canWriteBoard() || !roomId) return;
+  if (!canWriteBoard() || !roomId || ![-1, 1].includes(delta)) return;
 
   const boardRef = doc(db, "bingoBoards", roomId);
+  const logRef = doc(collection(db, "bingoRooms", roomId, "chickenLogs"));
   try {
     await runTransaction(db, async (transaction) => {
       const boardSnap = await transaction.get(boardRef);
@@ -315,15 +408,35 @@ async function changeChickenCount(delta) {
 
       const current = Math.max(0, Number(boardSnap.data().chickenCount) || 0);
       const next = Math.min(999, Math.max(0, current + delta));
+      if (next === current) return;
+
       transaction.update(boardRef, {
         chickenCount: next,
         updatedAt: serverTimestamp()
       });
+      transaction.set(logRef, {
+        delta,
+        actorUid: currentUser.uid,
+        actorName: currentProfile.name || currentUser.displayName || currentUser.email || "사용자",
+        createdAt: serverTimestamp(),
+        reverted: false,
+        revertedAt: null,
+        revertedByUid: "",
+        revertedByName: ""
+      });
     });
   } catch (error) {
     console.error(error);
-    setMessage("치킨 수량을 저장하지 못했습니다.");
+    setMessage(firebaseErrorMessage(error, "치킨 수량을 저장하지 못했습니다."));
   }
+}
+
+function getBoardCellSize(size) {
+  const mobile = window.matchMedia("(max-width: 760px)").matches;
+  if (size >= 9) return mobile ? 40 : 48;
+  if (size >= 7) return mobile ? 44 : 54;
+  if (size >= 5) return mobile ? 50 : 64;
+  return mobile ? 64 : 78;
 }
 
 function renderBoard() {
@@ -332,11 +445,11 @@ function renderBoard() {
   const size = Number(roomData.size) || 5;
   const total = size * size;
   const checkedCells = boardData.checkedCells || {};
-  const minCell = size >= 50 ? 24 : size >= 20 ? 30 : size >= 10 ? 42 : 72;
+  const cellSize = getBoardCellSize(size);
 
   bingoBoard.innerHTML = "";
   bingoBoard.style.setProperty("--bingo-size", size);
-  bingoBoard.style.setProperty("--bingo-cell-size", `${minCell}px`);
+  bingoBoard.style.setProperty("--bingo-cell-size", `${cellSize}px`);
   bingoBoard.classList.toggle("image-mode", Boolean(boardImageUrl));
   bingoBoard.classList.toggle("alphabet-board", roomData?.boardType === "alphabet");
 
@@ -363,10 +476,7 @@ function renderBoard() {
       cell.innerHTML = `<span class="cell-number">${displayValue}</span>`;
     }
 
-    if (canWriteBoard()) {
-      cell.addEventListener("click", () => toggleCell(index));
-    }
-
+    if (canWriteBoard()) cell.addEventListener("click", () => toggleCell(index));
     fragment.appendChild(cell);
   }
 
@@ -392,14 +502,16 @@ async function toggleCell(index) {
         updatedAt: serverTimestamp()
       });
     });
+    lastBoardUndo = null;
+    renderBoardStatus();
   } catch (error) {
     console.error(error);
-    setMessage("빙고 체크 상태를 저장하지 못했습니다.");
+    setMessage(firebaseErrorMessage(error, "빙고 체크 상태를 저장하지 못했습니다."));
   }
 }
 
 async function loadManageUsers() {
-  if (!isOwner() || access !== "write") return;
+  if (!isOwner() || access !== "write" || isClosedRoom()) return;
 
   const snap = await getDocs(collection(db, "users"));
   allUsers = snap.docs
@@ -409,6 +521,17 @@ async function loadManageUsers() {
 
   participantDraft = new Set(roomData.participantUids || []);
   participantDraftDirty = false;
+  participantMembershipMap = new Map();
+
+  await Promise.all([...participantDraft].map(async (uid) => {
+    try {
+      const snap = await getDoc(doc(db, "bingoMemberships", uid));
+      if (snap.exists()) participantMembershipMap.set(uid, snap.data());
+    } catch (error) {
+      console.error("참가 상태 확인 실패", uid, error);
+    }
+  }));
+
   renderManageUsers();
 }
 
@@ -418,14 +541,20 @@ function canBeParticipant(user) {
   return ["read", "write"].includes(user.bingoAccess);
 }
 
+function canOwnRoom(user) {
+  if (!user || user.status !== "approved") return false;
+  if (["super_admin", "admin"].includes(user.role)) return true;
+  return user.bingoAccess === "write";
+}
+
 function participantUser(uid) {
-  return allUsers.find((user) => user.uid === uid) || { uid, name: "알 수 없는 사용자", email: uid };
+  return allUsers.find((user) => user.uid === uid) || { uid, name: "알 수 없는 사용자", email: "" };
 }
 
 function participantStatusText(user) {
-  if (user.status !== "approved") return "현재 승인 상태가 아닙니다.";
-  if (!canBeParticipant(user)) return "현재 빙고 접근 권한이 없습니다.";
-  return user.email || "";
+  const membershipData = participantMembershipMap.get(user.uid);
+  if (membershipData?.roomId === roomId && membershipData?.role === "participant") return "현재 입장 중";
+  return "초대됨";
 }
 
 function createParticipantManageItem(user, mode) {
@@ -436,36 +565,47 @@ function createParticipantManageItem(user, mode) {
   info.className = "participant-manage-info";
   info.innerHTML = `
     <strong>${escapeHtml(user.name || user.email || "사용자")}</strong>
-    <small>${escapeHtml(participantStatusText(user))}</small>
+    <small>${escapeHtml(user.email || "")}${mode === "remove" ? ` · ${participantStatusText(user)}` : ""}</small>
   `;
 
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = mode === "remove"
-    ? "danger-outline compact-button"
-    : "secondary compact-button";
-  button.textContent = mode === "remove" ? "삭제" : "추가";
+  const actions = document.createElement("div");
+  actions.className = "participant-manage-actions";
 
   if (mode === "remove") {
-    button.addEventListener("click", () => {
+    const membershipData = participantMembershipMap.get(user.uid);
+    if (membershipData?.roomId === roomId && membershipData?.role === "participant" && canOwnRoom(user)) {
+      const transferButton = document.createElement("button");
+      transferButton.type = "button";
+      transferButton.className = "secondary compact-button owner-transfer-button";
+      transferButton.textContent = "방장 위임";
+      transferButton.addEventListener("click", () => transferOwner(user));
+      actions.appendChild(transferButton);
+    }
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "danger-outline compact-button";
+    removeButton.textContent = "제외";
+    removeButton.addEventListener("click", () => {
       participantDraft.delete(user.uid);
       participantDraftDirty = true;
       renderManageUsers();
     });
+    actions.appendChild(removeButton);
   } else {
-    button.disabled = participantDraft.size >= 20;
-    button.addEventListener("click", () => {
-      if (participantDraft.size >= 20) {
-        setMessage("참가자는 최대 20명까지 지정할 수 있습니다.");
-        return;
-      }
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "secondary compact-button";
+    addButton.textContent = "추가";
+    addButton.addEventListener("click", () => {
       participantDraft.add(user.uid);
       participantDraftDirty = true;
       renderManageUsers();
     });
+    actions.appendChild(addButton);
   }
 
-  item.append(info, button);
+  item.append(info, actions);
   return item;
 }
 
@@ -551,33 +691,27 @@ function renderManageUsers() {
 }
 
 async function saveParticipants() {
-  if (!isOwner() || access !== "write" || !participantDraftDirty) return;
+  if (!isOwner() || access !== "write" || !participantDraftDirty || isClosedRoom()) return;
 
   const nextUids = [...participantDraft];
   const previousUids = roomData.participantUids || [];
   const removedUids = previousUids.filter((uid) => !participantDraft.has(uid));
-
   const saveButton = document.getElementById("saveParticipantsButton");
   saveButton.disabled = true;
   saveButton.textContent = "저장 중...";
   setMessage("");
 
   try {
-    // 삭제 대상이 실제로 이 방에 입장 중인지 먼저 확인합니다.
-    // 아직 입장하지 않은 초대 사용자도 조회할 수 있도록 Firestore Rules v12를 함께 적용해야 합니다.
     const activeMembershipRefs = [];
     for (const uid of removedUids) {
       const membershipRef = doc(db, "bingoMemberships", uid);
       const membershipSnap = await getDoc(membershipRef);
       if (membershipSnap.exists()) {
         const data = membershipSnap.data();
-        if (data.roomId === roomId && data.role === "participant") {
-          activeMembershipRefs.push(membershipRef);
-        }
+        if (data.roomId === roomId && data.role === "participant") activeMembershipRefs.push(membershipRef);
       }
     }
 
-    // 참가자 목록 변경과 현재 입장 중인 제외 사용자의 퇴장을 한 번에 커밋합니다.
     const batch = writeBatch(db);
     batch.update(doc(db, "bingoRooms", roomId), {
       participantUids: nextUids,
@@ -588,19 +722,82 @@ async function saveParticipants() {
 
     roomData.participantUids = nextUids;
     participantDraftDirty = false;
+    removedUids.forEach((uid) => participantMembershipMap.delete(uid));
     renderManageUsers();
     setMessage("참가자 변경사항을 저장했습니다.", true);
   } catch (error) {
     console.error(error);
-    setMessage("참가자 변경에 실패했습니다. Firestore Rules v12가 게시되었는지 확인해주세요.");
+    setMessage(firebaseErrorMessage(error, "참가자 변경에 실패했습니다."));
   } finally {
     saveButton.textContent = "변경사항 저장";
     saveButton.disabled = !participantDraftDirty;
   }
 }
 
+async function transferOwner(targetUser) {
+  if (!isOwner() || access !== "write" || isClosedRoom()) return;
+  const targetMembership = participantMembershipMap.get(targetUser.uid);
+  if (!canOwnRoom(targetUser)) {
+    await showNotice("빙고 쓰기 권한이 있는 참가자에게만 방장을 위임할 수 있습니다.");
+    return;
+  }
+  if (targetMembership?.roomId !== roomId || targetMembership?.role !== "participant") {
+    await showNotice("현재 이 빙고방에 입장 중인 참가자에게만 방장을 위임할 수 있습니다.");
+    return;
+  }
+
+  const confirmed = await showConfirm(
+    `${targetUser.name || targetUser.email || "선택한 참가자"}님에게 방장을 위임할까요?\n위임 후 현재 방장은 일반 참가자가 됩니다.`,
+    { title: "방장 위임", confirmText: "위임" }
+  );
+  if (!confirmed) return;
+
+  const roomRef = doc(db, "bingoRooms", roomId);
+  const currentMembershipRef = doc(db, "bingoMemberships", currentUser.uid);
+  const targetMembershipRef = doc(db, "bingoMemberships", targetUser.uid);
+
+  try {
+    await runTransaction(db, async (transaction) => {
+      const [roomSnap, currentMemSnap, targetMemSnap] = await Promise.all([
+        transaction.get(roomRef),
+        transaction.get(currentMembershipRef),
+        transaction.get(targetMembershipRef)
+      ]);
+      if (!roomSnap.exists() || !currentMemSnap.exists() || !targetMemSnap.exists()) throw new Error("TRANSFER_STATE_CHANGED");
+
+      const room = roomSnap.data();
+      const currentMem = currentMemSnap.data();
+      const targetMem = targetMemSnap.data();
+      if (room.status === "closed" || room.ownerUid !== currentUser.uid) throw new Error("TRANSFER_STATE_CHANGED");
+      if (currentMem.roomId !== roomId || currentMem.role !== "owner") throw new Error("TRANSFER_STATE_CHANGED");
+      if (targetMem.roomId !== roomId || targetMem.role !== "participant") throw new Error("TARGET_NOT_ACTIVE");
+      if (!(room.participantUids || []).includes(targetUser.uid)) throw new Error("TARGET_NOT_INVITED");
+
+      const nextParticipants = (room.participantUids || []).filter((uid) => uid !== targetUser.uid);
+      if (!nextParticipants.includes(currentUser.uid)) nextParticipants.push(currentUser.uid);
+
+      transaction.update(roomRef, {
+        ownerUid: targetUser.uid,
+        ownerName: targetUser.name || targetUser.email || "방장",
+        participantUids: nextParticipants,
+        updatedAt: serverTimestamp()
+      });
+      transaction.update(currentMembershipRef, { role: "participant" });
+      transaction.update(targetMembershipRef, { role: "owner" });
+    });
+    participantDraftDirty = false;
+    setMessage("방장을 위임했습니다. 이제 일반 참가자로 이용합니다.", true);
+  } catch (error) {
+    console.error(error);
+    const fallback = error.message === "TARGET_NOT_ACTIVE"
+      ? "상대방이 현재 이 방에 입장 중이 아닙니다. 다시 확인해주세요."
+      : "방장 위임에 실패했습니다. 참가 상태가 바뀌었는지 확인해주세요.";
+    setMessage(firebaseErrorMessage(error, fallback));
+  }
+}
+
 async function leaveRoom() {
-  if (isOwner()) return;
+  if (isOwner() || archiveMode || isClosedRoom()) return;
   const confirmed = await showConfirm(
     "나간 뒤에는 다른 빙고방에 참가할 수 있습니다.",
     { title: "현재 빙고방에서 나갈까요?", confirmText: "방 나가기", danger: true }
@@ -609,18 +806,86 @@ async function leaveRoom() {
 
   try {
     await deleteDoc(doc(db, "bingoMemberships", currentUser.uid));
+    sessionStorage.removeItem("churangArchiveRoomId");
     location.replace("./bingo.html");
   } catch (error) {
     console.error(error);
-    setMessage("방 나가기에 실패했습니다.");
+    setMessage(firebaseErrorMessage(error, "방 나가기에 실패했습니다."));
+  }
+}
+
+async function closeRoom() {
+  if (!isOwner() || archiveMode || isClosedRoom()) return;
+  const confirmed = await showConfirm(
+    "빙고방을 종료하면 체크 상태, 치킨 기록, 참가자 정보는 보관되고 모두 결과 보기만 가능합니다. 참가자들은 다른 방에 참여할 수 있게 됩니다.",
+    { title: "이 빙고방을 종료할까요?", confirmText: "방 종료" }
+  );
+  if (!confirmed) return;
+
+  setMessage("빙고방을 종료하고 있습니다...");
+  try {
+    const membershipRefs = [];
+    const ownerMembershipRef = doc(db, "bingoMemberships", currentUser.uid);
+    membershipRefs.push(ownerMembershipRef);
+
+    for (const uid of roomData.participantUids || []) {
+      const ref = doc(db, "bingoMemberships", uid);
+      const snap = await getDoc(ref);
+      if (snap.exists() && snap.data().roomId === roomId) membershipRefs.push(ref);
+    }
+
+    // 종료 상태를 먼저 저장한 뒤 참가정보를 정리합니다.
+    // 방장 본인의 membership 삭제 규칙이 종료 상태를 확인할 수 있도록 두 단계로 처리합니다.
+    roomUnsubscribe?.();
+    roomUnsubscribe = null;
+
+    const closeBatch = writeBatch(db);
+    closeBatch.update(doc(db, "bingoRooms", roomId), {
+      status: "closed",
+      closedAt: serverTimestamp(),
+      closedByUid: currentUser.uid,
+      updatedAt: serverTimestamp()
+    });
+    await closeBatch.commit();
+
+    const membershipBatch = writeBatch(db);
+    membershipRefs.forEach((ref) => membershipBatch.delete(ref));
+    await membershipBatch.commit();
+
+    sessionStorage.removeItem("churangArchiveRoomId");
+    location.replace("./bingo.html");
+  } catch (error) {
+    console.error(error);
+    try {
+      const snap = await getDoc(doc(db, "bingoRooms", roomId));
+      if (snap.exists() && snap.data().status === "closed") {
+        sessionStorage.removeItem("churangArchiveRoomId");
+        location.replace("./bingo.html");
+        return;
+      }
+    } catch (_) {}
+    if (!roomUnsubscribe) startRealtimeListeners();
+    setMessage(firebaseErrorMessage(error, "빙고방 종료에 실패했습니다."));
+  }
+}
+
+async function deleteChickenLogs() {
+  const snap = await getDocs(collection(db, "bingoRooms", roomId, "chickenLogs"));
+  const docs = [...snap.docs];
+  for (let start = 0; start < docs.length; start += 400) {
+    const batch = writeBatch(db);
+    docs.slice(start, start + 400).forEach((item) => batch.delete(item.ref));
+    await batch.commit();
   }
 }
 
 async function deleteRoom() {
   if (!isOwner()) return;
   const confirmed = await showConfirm(
-    "참가자들의 현재 참가 상태와 빙고 데이터도 함께 정리됩니다.",
-    { title: "이 빙고방을 삭제할까요?", confirmText: "방 삭제", danger: true }
+    isClosedRoom()
+      ? "보관된 빙고 결과, 치킨 기록, 사진이 모두 삭제되며 복구할 수 없습니다."
+      : "참가자들의 현재 참가 상태, 빙고 데이터, 치킨 기록과 사진도 함께 삭제됩니다.",
+    { title: isClosedRoom() ? "보관된 기록을 삭제할까요?" : "이 빙고방을 삭제할까요?", confirmText: "삭제", danger: true }
   );
   if (!confirmed) return;
 
@@ -633,51 +898,147 @@ async function deleteRoom() {
       if (storageError?.code !== "storage/object-not-found") throw storageError;
     }
 
-    for (const uid of roomData.participantUids || []) {
-      const membershipRef = doc(db, "bingoMemberships", uid);
-      const membershipSnap = await getDoc(membershipRef);
-      if (membershipSnap.exists()) {
-        const data = membershipSnap.data();
-        if (data.roomId === roomId && data.role === "participant") {
-          await deleteDoc(membershipRef);
+    if (!isClosedRoom()) {
+      for (const uid of roomData.participantUids || []) {
+        const membershipRef = doc(db, "bingoMemberships", uid);
+        const membershipSnap = await getDoc(membershipRef);
+        if (membershipSnap.exists()) {
+          const data = membershipSnap.data();
+          if (data.roomId === roomId && data.role === "participant") await deleteDoc(membershipRef);
         }
       }
     }
 
-    // 방 문서를 지우는 순간 실시간 리스너가 먼저 이동시키면
-    // 방장 membership 삭제가 중단될 수 있으므로 삭제 직전에 감시를 종료합니다.
     roomUnsubscribe?.();
     boardUnsubscribe?.();
     membershipUnsubscribe?.();
+    chickenLogsUnsubscribe?.();
     roomUnsubscribe = null;
     boardUnsubscribe = null;
     membershipUnsubscribe = null;
+    chickenLogsUnsubscribe = null;
 
+    await deleteChickenLogs();
     await deleteDoc(doc(db, "bingoBoards", roomId));
     await deleteDoc(doc(db, "bingoRooms", roomId));
-    await deleteDoc(doc(db, "bingoMemberships", currentUser.uid));
 
+    if (!archiveMode) {
+      try { await deleteDoc(doc(db, "bingoMemberships", currentUser.uid)); } catch (_) {}
+    }
+
+    sessionStorage.removeItem("churangArchiveRoomId");
     location.replace("./bingo.html");
   } catch (error) {
     console.error(error);
-    setMessage("방 삭제 중 오류가 발생했습니다. 다시 시도해주세요.");
+    setMessage(firebaseErrorMessage(error, "방 삭제 중 오류가 발생했습니다. 다시 시도해주세요."));
 
-    // 방 삭제 전에 실패한 경우에는 화면 실시간 감시를 다시 연결합니다.
     try {
       const roomSnap = await getDoc(doc(db, "bingoRooms", roomId));
-      if (roomSnap.exists() && !roomUnsubscribe && !boardUnsubscribe && !membershipUnsubscribe) {
-        startRealtimeListeners();
-      }
+      if (roomSnap.exists() && !roomUnsubscribe && !boardUnsubscribe) startRealtimeListeners();
+      else location.replace("./bingo.html");
     } catch (_) {
-      // 이미 방이 삭제된 상태라면 빙고 로비에서 고아 참가정보를 자동 정리합니다.
       location.replace("./bingo.html");
     }
   }
 }
 
+function formatLogTime(value) {
+  const date = value?.toDate?.();
+  if (!date) return "방금 전";
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
+}
+
+function renderChickenHistory() {
+  chickenHistoryList.innerHTML = "";
+  const sorted = [...chickenLogs].sort((a, b) => {
+    const aTime = a.createdAt?.toMillis?.() || 0;
+    const bTime = b.createdAt?.toMillis?.() || 0;
+    return bTime - aTime;
+  });
+
+  if (!sorted.length) {
+    chickenHistoryList.innerHTML = '<div class="chicken-history-empty">아직 치킨 기록이 없습니다.</div>';
+    return;
+  }
+
+  sorted.slice(0, 100).forEach((log) => {
+    const item = document.createElement("div");
+    item.className = `chicken-history-item${log.reverted ? " reverted" : ""}`;
+    const deltaText = Number(log.delta) > 0 ? "+1" : "-1";
+    const detail = document.createElement("div");
+    detail.className = "chicken-history-info";
+    detail.innerHTML = `
+      <strong>${escapeHtml(log.actorName || "사용자")} · ${deltaText} 치킨</strong>
+      <small>${formatLogTime(log.createdAt)}${log.reverted ? ` · ${escapeHtml(log.revertedByName || "사용자")}님이 취소` : ""}</small>
+    `;
+    item.appendChild(detail);
+
+    if (!log.reverted && canWriteBoard()) {
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "secondary compact-button";
+      cancel.textContent = "기록 취소";
+      cancel.addEventListener("click", () => undoChickenLog(log));
+      item.appendChild(cancel);
+    }
+    chickenHistoryList.appendChild(item);
+  });
+}
+
+async function undoChickenLog(log) {
+  if (!canWriteBoard() || log.reverted) return;
+  const confirmed = await showConfirm(
+    `${log.actorName || "사용자"}님의 ${Number(log.delta) > 0 ? "+1" : "-1"} 치킨 기록을 취소할까요?`,
+    { title: "치킨 기록 취소", confirmText: "취소 처리" }
+  );
+  if (!confirmed) return;
+
+  const boardRef = doc(db, "bingoBoards", roomId);
+  const logRef = doc(db, "bingoRooms", roomId, "chickenLogs", log.id);
+  try {
+    await runTransaction(db, async (transaction) => {
+      const [boardSnap, logSnap] = await Promise.all([transaction.get(boardRef), transaction.get(logRef)]);
+      if (!boardSnap.exists() || !logSnap.exists()) throw new Error("기록을 찾을 수 없습니다.");
+      const liveLog = logSnap.data();
+      if (liveLog.reverted) throw new Error("ALREADY_REVERTED");
+
+      const current = Math.max(0, Number(boardSnap.data().chickenCount) || 0);
+      const next = current - Number(liveLog.delta || 0);
+      if (next < 0 || next > 999) throw new Error("COUNT_RANGE");
+      transaction.update(boardRef, { chickenCount: next, updatedAt: serverTimestamp() });
+      transaction.update(logRef, {
+        reverted: true,
+        revertedAt: serverTimestamp(),
+        revertedByUid: currentUser.uid,
+        revertedByName: currentProfile.name || currentUser.displayName || currentUser.email || "사용자"
+      });
+    });
+  } catch (error) {
+    console.error(error);
+    const fallback = error.message === "ALREADY_REVERTED"
+      ? "이미 취소된 기록입니다."
+      : error.message === "COUNT_RANGE"
+        ? "이 기록을 취소하면 치킨 수량이 올바르지 않게 됩니다. 이후 기록을 먼저 확인해주세요."
+        : "치킨 기록 취소에 실패했습니다.";
+    setMessage(firebaseErrorMessage(error, fallback));
+  }
+}
+
 function startRealtimeListeners() {
+  roomUnsubscribe?.();
+  boardUnsubscribe?.();
+  membershipUnsubscribe?.();
+  chickenLogsUnsubscribe?.();
+
   roomUnsubscribe = onSnapshot(doc(db, "bingoRooms", roomId), async (snap) => {
     if (!snap.exists()) {
+      sessionStorage.removeItem("churangArchiveRoomId");
       location.replace("./bingo.html");
       return;
     }
@@ -688,43 +1049,64 @@ function startRealtimeListeners() {
 
     if (!allowed) {
       await showNotice("방장이 참가자 목록에서 제외했습니다.", "빙고방에서 나갑니다");
+      sessionStorage.removeItem("churangArchiveRoomId");
+      location.replace("./bingo.html");
+      return;
+    }
+
+    if (!archiveMode && roomData.status === "closed") {
+      sessionStorage.removeItem("churangArchiveRoomId");
       location.replace("./bingo.html");
       return;
     }
 
     renderRoomHeader();
-    if (isOwner() && access === "write") {
-      if (!participantDraftDirty) {
-        await loadManageUsers();
-      } else {
-        renderManageUsers();
-      }
+    if (isOwner() && access === "write" && !isClosedRoom()) {
+      if (!participantDraftDirty) await loadManageUsers();
+      else renderManageUsers();
     } else {
       participantManagePanel.classList.add("hidden");
     }
     renderBoard();
+    renderChickenHistory();
   });
 
   boardUnsubscribe = onSnapshot(doc(db, "bingoBoards", roomId), (snap) => {
     if (!snap.exists()) return;
-    boardData = snap.data();
+    const nextBoard = snap.data();
+    if (lastBoardUndo && !mapsEqual(nextBoard.checkedCells || {}, lastBoardUndo.after)) lastBoardUndo = null;
+    boardData = nextBoard;
     renderBoard();
   });
 
-  membershipUnsubscribe = onSnapshot(doc(db, "bingoMemberships", currentUser.uid), (snap) => {
-    if (!snap.exists()) {
-      location.replace("./bingo.html");
-      return;
-    }
-    const data = snap.data();
-    if (data.roomId !== roomId) location.replace("./bingo.html");
+  chickenLogsUnsubscribe = onSnapshot(collection(db, "bingoRooms", roomId, "chickenLogs"), (snap) => {
+    chickenLogs = snap.docs.map((item) => ({ id: item.id, ...item.data() }));
+    renderChickenHistory();
+  }, (error) => {
+    console.error("치킨 기록 실시간 조회 실패", error);
+    chickenHistoryList.innerHTML = `<div class="chicken-history-empty">${escapeHtml(firebaseErrorMessage(error, "치킨 기록을 불러오지 못했습니다."))}</div>`;
   });
+
+  if (!archiveMode) {
+    membershipUnsubscribe = onSnapshot(doc(db, "bingoMemberships", currentUser.uid), (snap) => {
+      if (!snap.exists()) {
+        location.replace("./bingo.html");
+        return;
+      }
+      const data = snap.data();
+      if (data.roomId !== roomId) location.replace("./bingo.html");
+      else membership = data;
+    });
+  }
 }
 
 selectAllCellsButton.addEventListener("click", () => setAllCells(true));
 clearAllCellsButton.addEventListener("click", () => setAllCells(false));
+undoBoardButton.addEventListener("click", undoLastBoardChange);
 decreaseChickenButton.addEventListener("click", () => changeChickenCount(-1));
 increaseChickenButton.addEventListener("click", () => changeChickenCount(1));
+chickenHistoryButton.addEventListener("click", () => chickenHistoryPanel.classList.toggle("hidden"));
+closeChickenHistoryButton.addEventListener("click", () => chickenHistoryPanel.classList.add("hidden"));
 
 currentParticipantSearch.addEventListener("input", () => {
   currentParticipantSearchTerm = currentParticipantSearch.value.trim();
@@ -741,11 +1123,19 @@ availableParticipantSearch.addEventListener("input", () => {
 document.getElementById("saveParticipantsButton").addEventListener("click", saveParticipants);
 
 document.getElementById("logoutButton").addEventListener("click", async () => {
+  sessionStorage.removeItem("churangArchiveRoomId");
   roomUnsubscribe?.();
   boardUnsubscribe?.();
   membershipUnsubscribe?.();
+  chickenLogsUnsubscribe?.();
   await signOut(auth);
   location.replace("./index.html");
+});
+
+let resizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(renderBoard, 120);
 });
 
 onAuthStateChanged(auth, async (user) => {
@@ -768,18 +1158,17 @@ onAuthStateChanged(auth, async (user) => {
     renderRoomHeader();
     renderBoard();
 
-    if (isOwner() && access === "write") {
-      await loadManageUsers();
-    }
+    if (isOwner() && access === "write" && !isClosedRoom()) await loadManageUsers();
 
     loadingPanel.classList.add("hidden");
     roomContent.classList.remove("hidden");
     startRealtimeListeners();
   } catch (error) {
     console.error(error);
+    sessionStorage.removeItem("churangArchiveRoomId");
     loadingPanel.innerHTML = `
       <h2>빙고방에 들어갈 수 없습니다.</h2>
-      <p>${escapeHtml(error.message)}</p>
+      <p>${escapeHtml(firebaseErrorMessage(error, error.message || "빙고방 정보를 불러오지 못했습니다."))}</p>
       <a class="service-button inline-button" href="./bingo.html">빙고 목록으로 돌아가기</a>
     `;
   }

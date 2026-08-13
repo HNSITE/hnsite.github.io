@@ -17,7 +17,7 @@
     })();
   </script>
   <title>빙고 | CHURANG</title>
-  <link rel="stylesheet" href="./assets/styles.css?v=24" />
+  <link rel="stylesheet" href="./assets/styles.css?v=25" />
 </head>
 <body class="app-page">
   <header class="topbar app-topbar">
@@ -124,6 +124,18 @@
                 <span id="customAlphabetCount" class="list-count-text"></span>
               </div>
               <p class="muted">각 칸에 A~Z 한 글자를 입력해주세요. 같은 알파벳을 여러 번 사용해도 됩니다.</p>
+              <div class="alphabet-quick-tools">
+                <div class="alphabet-bulk-row">
+                  <input id="alphabetBulkInput" type="text" placeholder="예: ABCDE 또는 A, B, C..." autocomplete="off" />
+                  <button id="applyAlphabetBulkButton" class="secondary compact-button" type="button">한번에 입력</button>
+                </div>
+                <div class="alphabet-tool-buttons">
+                  <button id="fillAlphabetRandomButton" class="secondary compact-button" type="button">A~Z 자동 채우기</button>
+                  <button id="shuffleAlphabetButton" class="secondary compact-button" type="button">현재 값 섞기</button>
+                  <button id="clearAlphabetButton" class="danger-outline compact-button" type="button">전체 비우기</button>
+                </div>
+                <p class="muted alphabet-paste-help">여러 글자를 복사한 뒤 첫 칸에 붙여넣어도 순서대로 입력됩니다.</p>
+              </div>
               <div class="custom-alphabet-scroll">
                 <div id="customAlphabetGrid" class="custom-alphabet-grid" aria-label="알파벳 직접 입력"></div>
               </div>
@@ -160,7 +172,7 @@
           </fieldset>
 
           <div class="form-footer-row">
-            <p class="muted">방을 만든 사람은 자동으로 방장이 되며, 다른 방에 참가하려면 자신의 방을 먼저 삭제해야 합니다.</p>
+            <p class="muted">방을 만든 사람은 자동으로 방장이 되며, 다른 방에 참가하려면 현재 방을 종료하거나 삭제해야 합니다.</p>
             <button id="createRoomButton" type="submit">빙고방 생성</button>
           </div>
         </form>
@@ -179,7 +191,7 @@
     </div>
   </main>
 
-  <script type="module" src="./js/bingo.js?v=24"></script>
-  <script type="module" src="./js/update-modal.js?v=24"></script>
+  <script type="module" src="./js/bingo.js?v=25"></script>
+  <script type="module" src="./js/update-modal.js?v=25"></script>
 </body>
 </html>

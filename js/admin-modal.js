@@ -1,5 +1,6 @@
 import { db, storage } from "./firebase-config.js";
 import {
+  addDoc,
   collection,
   deleteDoc,
   doc,
@@ -9,21 +10,26 @@ import {
   query,
   serverTimestamp,
   updateDoc,
-  where
+  where,
+  writeBatch
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 import {
   deleteObject,
   ref as storageRef
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
 import { showConfirm, showNotice } from "./ui-dialog.js?v=14";
+import { firebaseErrorMessage } from "./error-messages.js?v=25";
 
 const PAGE_SIZE = 10;
+const AUDIT_PAGE_SIZE = 20;
 
 let currentProfile = null;
 let allUsers = [];
 let activeTab = "pending";
 let initialized = false;
 let pendingUsersUnsubscribe = null;
+let auditLogs = [];
+let auditPage = 1;
 
 const tabState = {
   pending: { search: "", sortKey: "name", sortDir: "asc", page: 1 },
@@ -52,7 +58,7 @@ function ensureModal() {
         <div>
           <p class="eyebrow">ADMIN</p>
           <h2 id="adminModalTitle">사용자 관리</h2>
-          <p class="muted">승인 요청과 서비스 권한을 관리합니다.</p>
+          <p class="muted">승인 요청, 서비스 권한, 관리자 변경 이력을 관리합니다.</p>
         </div>
         <div class="admin-modal-header-actions">
           <button id="adminRefreshUsers" class="secondary compact-button" type="button">새로고침</button>
@@ -67,9 +73,12 @@ function ensureModal() {
         <button id="approvedUsersTab" class="admin-tab" type="button" role="tab" aria-selected="false" data-admin-tab="approved">
           승인 완료 <span id="approvedUsersCount" class="tab-count">0</span>
         </button>
+        <button id="auditLogsTab" class="admin-tab" type="button" role="tab" aria-selected="false" data-admin-tab="audit">
+          관리 이력
+        </button>
       </div>
 
-      <div class="admin-user-toolbar">
+      <div id="adminUserToolbar" class="admin-user-toolbar">
         <div class="admin-user-search-wrap">
           <label for="adminUserSearch">사용자 검색</label>
           <input id="adminUserSearch" type="search" placeholder="이름 또는 이메일 검색" autocomplete="off" />
@@ -87,7 +96,7 @@ function ensureModal() {
 
       <p id="adminModalMessage" class="message admin-modal-message"></p>
 
-      <div class="table-wrap admin-modal-table-wrap">
+      <div id="adminUserTableWrap" class="table-wrap admin-modal-table-wrap">
         <table class="admin-user-table">
           <thead>
             <tr>
@@ -113,20 +122,45 @@ function ensureModal() {
           <button id="adminUsersNext" class="secondary" type="button">다음</button>
         </div>
       </div>
+
+      <div id="adminAuditPanel" class="admin-audit-panel hidden">
+        <div class="table-wrap admin-audit-table-wrap">
+          <table class="admin-audit-table">
+            <thead><tr><th>시간</th><th>관리자</th><th>작업</th><th>대상</th><th>내용</th></tr></thead>
+            <tbody id="adminAuditBody"></tbody>
+          </table>
+        </div>
+        <div id="adminAuditEmpty" class="admin-users-empty hidden">관리 이력이 없습니다.</div>
+        <div id="adminAuditPagination" class="admin-users-pagination hidden">
+          <span id="adminAuditSummary" class="admin-page-summary"></span>
+          <div class="admin-page-buttons">
+            <button id="adminAuditPrev" class="secondary" type="button">이전</button>
+            <span id="adminAuditPageNumber" class="admin-page-number"></span>
+            <button id="adminAuditNext" class="secondary" type="button">다음</button>
+          </div>
+        </div>
+      </div>
     </section>
   `;
   document.body.appendChild(modal);
 
   document.getElementById("adminModalClose").addEventListener("click", closeUserManagementModal);
   modal.querySelector("[data-close-admin-modal]").addEventListener("click", closeUserManagementModal);
-  document.getElementById("adminRefreshUsers").addEventListener("click", loadUsers);
+  document.getElementById("adminRefreshUsers").addEventListener("click", async () => {
+    if (activeTab === "audit") await loadAuditLogs();
+    else await loadUsers();
+  });
 
   modal.querySelectorAll("[data-admin-tab]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       activeTab = button.dataset.adminTab;
       renderTabs();
-      syncControlsFromState();
-      renderUsers();
+      if (activeTab === "audit") {
+        await loadAuditLogs();
+      } else {
+        syncControlsFromState();
+        renderUsers();
+      }
     });
   });
 
@@ -163,6 +197,17 @@ function ensureModal() {
     const state = currentTabState();
     state.page += 1;
     renderUsers();
+  });
+
+  document.getElementById("adminAuditPrev").addEventListener("click", () => {
+    if (auditPage <= 1) return;
+    auditPage -= 1;
+    renderAuditLogs();
+  });
+
+  document.getElementById("adminAuditNext").addEventListener("click", () => {
+    auditPage += 1;
+    renderAuditLogs();
   });
 
   document.addEventListener("keydown", (event) => {
@@ -290,7 +335,7 @@ async function loadUsers() {
     renderUsers();
   } catch (error) {
     console.error(error);
-    message.textContent = "사용자 목록을 불러오지 못했습니다.";
+    message.textContent = firebaseErrorMessage(error, "사용자 목록을 불러오지 못했습니다.");
   }
 }
 
@@ -300,6 +345,13 @@ function renderTabs() {
     button.classList.toggle("active", selected);
     button.setAttribute("aria-selected", selected ? "true" : "false");
   });
+
+  const audit = activeTab === "audit";
+  document.getElementById("adminUserToolbar")?.classList.toggle("hidden", audit);
+  document.getElementById("adminUserTableWrap")?.classList.toggle("hidden", audit);
+  document.getElementById("adminUsersEmpty")?.classList.toggle("admin-view-hidden", audit);
+  document.getElementById("adminUsersPagination")?.classList.toggle("admin-view-hidden", audit);
+  document.getElementById("adminAuditPanel")?.classList.toggle("hidden", !audit);
 }
 
 function syncControlsFromState() {
@@ -351,6 +403,100 @@ function filteredSortedUsers() {
   return users;
 }
 
+function formatAuditTime(value) {
+  const date = value?.toDate?.();
+  if (!date) return "방금 전";
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "2-digit",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
+}
+
+const auditActionLabel = (action) => ({
+  user_approve: "사용자 승인",
+  user_suspend: "사용중지",
+  user_resume: "사용재개",
+  permission_change: "권한 변경",
+  user_delete: "사용자 삭제",
+  admin_promote: "관리자 지정",
+  admin_demote: "관리자 해제",
+  update_create: "업데이트 등록",
+  update_edit: "업데이트 수정",
+  update_delete: "업데이트 삭제"
+}[action] || action || "관리 작업");
+
+async function writeAudit(action, target = {}, detail = "") {
+  if (!isManager()) return;
+  try {
+    await addDoc(collection(db, "adminAuditLogs"), {
+      actorUid: currentProfile.uid || "",
+      actorName: currentProfile.name || currentProfile.email || "관리자",
+      actorEmail: currentProfile.email || "",
+      action,
+      targetUid: target.uid || "",
+      targetName: target.name || target.email || target.title || "",
+      targetEmail: target.email || "",
+      detail: String(detail || "").slice(0, 500),
+      createdAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error("관리 이력 저장 실패", error);
+  }
+}
+
+async function loadAuditLogs() {
+  const message = document.getElementById("adminModalMessage");
+  if (message) message.textContent = "관리 이력을 불러오는 중...";
+  try {
+    const snap = await getDocs(collection(db, "adminAuditLogs"));
+    auditLogs = snap.docs.map((item) => ({ id: item.id, ...item.data() }));
+    auditLogs.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    auditPage = Math.min(auditPage, Math.max(1, Math.ceil(auditLogs.length / AUDIT_PAGE_SIZE)));
+    if (message) message.textContent = "";
+    renderAuditLogs();
+  } catch (error) {
+    console.error(error);
+    if (message) message.textContent = firebaseErrorMessage(error, "관리 이력을 불러오지 못했습니다.");
+  }
+}
+
+function renderAuditLogs() {
+  const body = document.getElementById("adminAuditBody");
+  const empty = document.getElementById("adminAuditEmpty");
+  const pagination = document.getElementById("adminAuditPagination");
+  if (!body || !empty || !pagination) return;
+
+  const totalPages = Math.max(1, Math.ceil(auditLogs.length / AUDIT_PAGE_SIZE));
+  auditPage = Math.min(Math.max(1, auditPage), totalPages);
+  const start = (auditPage - 1) * AUDIT_PAGE_SIZE;
+  const page = auditLogs.slice(start, start + AUDIT_PAGE_SIZE);
+  body.innerHTML = "";
+  empty.classList.toggle("hidden", auditLogs.length > 0);
+  pagination.classList.toggle("hidden", auditLogs.length === 0);
+
+  page.forEach((log) => {
+    const row = document.createElement("tr");
+    addCell(row, formatAuditTime(log.createdAt));
+    addCell(row, log.actorName || log.actorEmail || "관리자");
+    addCell(row, auditActionLabel(log.action));
+    addCell(row, log.targetName || log.targetEmail || "-");
+    addCell(row, log.detail || "-");
+    body.appendChild(row);
+  });
+
+  if (auditLogs.length) {
+    const end = Math.min(start + page.length, auditLogs.length);
+    document.getElementById("adminAuditSummary").textContent = `총 ${auditLogs.length}건 · ${start + 1}-${end}건 표시`;
+    document.getElementById("adminAuditPageNumber").textContent = `${auditPage} / ${totalPages}`;
+    document.getElementById("adminAuditPrev").disabled = auditPage <= 1;
+    document.getElementById("adminAuditNext").disabled = auditPage >= totalPages;
+  }
+}
+
 function makeAccessSelect(user, field, editable) {
   const select = document.createElement("select");
   ["none", "read", "write"].forEach((value) => {
@@ -368,9 +514,10 @@ function makeAccessSelect(user, field, editable) {
       try {
         await updateDoc(doc(db, "users", user.uid), { [field]: select.value });
         user[field] = select.value;
+        await writeAudit("permission_change", user, `${field === "bingoAccess" ? "빙고" : "킬내기"}: ${accessLabel(previous)} → ${accessLabel(select.value)}`);
       } catch (error) {
         console.error(error);
-        await showNotice("권한 변경에 실패했습니다.");
+        await showNotice(firebaseErrorMessage(error, "권한 변경에 실패했습니다."));
         select.value = previous;
       }
     });
@@ -409,6 +556,16 @@ async function deleteActiveMembershipIfMatches(uid, roomId) {
   if (snap.data().roomId === roomId) await deleteDoc(membershipRef);
 }
 
+async function deleteChickenLogsForAdmin(roomId) {
+  const snap = await getDocs(collection(db, "bingoRooms", roomId, "chickenLogs"));
+  const items = [...snap.docs];
+  for (let start = 0; start < items.length; start += 400) {
+    const batch = writeBatch(db);
+    items.slice(start, start + 400).forEach((item) => batch.delete(item.ref));
+    await batch.commit();
+  }
+}
+
 async function cascadeDeleteManagedUser(user) {
   const roomsRef = collection(db, "bingoRooms");
   const [ownedSnap, invitedSnap] = await Promise.all([
@@ -425,6 +582,7 @@ async function cascadeDeleteManagedUser(user) {
   // 삭제 대상이 방장인 방은 사진, 참가상태, 빙고판, 방 순서로 정리합니다.
   for (const room of ownedRooms) {
     await deleteRoomImageForAdmin(room.id);
+    await deleteChickenLogsForAdmin(room.id);
 
     for (const participantUid of room.participantUids || []) {
       await deleteActiveMembershipIfMatches(participantUid, room.id);
@@ -463,11 +621,12 @@ async function deleteManagedUser(user) {
 
   try {
     await cascadeDeleteManagedUser(user);
+    await writeAudit("user_delete", user, "사용자와 연동된 빙고 데이터를 삭제");
     await loadUsers();
     await showNotice("사용자와 연동된 빙고 데이터를 모두 삭제했습니다.");
   } catch (error) {
     console.error(error);
-    await showNotice("사용자 연동 데이터 삭제에 실패했습니다. Firestore/Storage 규칙이 최신인지 확인해주세요.");
+    await showNotice(firebaseErrorMessage(error, "사용자 연동 데이터 삭제에 실패했습니다."));
   }
 }
 
@@ -522,30 +681,33 @@ function renderUsers() {
         actions.appendChild(makeButton("승인", async () => {
           try {
             await updateDoc(doc(db, "users", user.uid), { status: "approved" });
+            await writeAudit(user.status === "pending" ? "user_approve" : "user_resume", user, user.status === "pending" ? "사용 승인" : "사용 재개");
             await loadUsers();
           } catch (error) {
             console.error(error);
-            await showNotice("승인에 실패했습니다.");
+            await showNotice(firebaseErrorMessage(error, "승인에 실패했습니다."));
           }
         }));
       } else if (user.status === "approved") {
         actions.appendChild(makeButton("사용중지", async () => {
           try {
             await updateDoc(doc(db, "users", user.uid), { status: "suspended" });
+            await writeAudit("user_suspend", user, "사용중지");
             await loadUsers();
           } catch (error) {
             console.error(error);
-            await showNotice("사용중지에 실패했습니다.");
+            await showNotice(firebaseErrorMessage(error, "사용중지에 실패했습니다."));
           }
         }, "danger"));
       } else if (user.status === "suspended") {
         actions.appendChild(makeButton("사용재개", async () => {
           try {
             await updateDoc(doc(db, "users", user.uid), { status: "approved" });
+            await writeAudit(user.status === "pending" ? "user_approve" : "user_resume", user, user.status === "pending" ? "사용 승인" : "사용 재개");
             await loadUsers();
           } catch (error) {
             console.error(error);
-            await showNotice("사용재개에 실패했습니다.");
+            await showNotice(firebaseErrorMessage(error, "사용재개에 실패했습니다."));
           }
         }));
       }
@@ -555,10 +717,11 @@ function renderUsers() {
           if (!await showConfirm(`${user.name || user.email} 사용자를 관리자로 지정할까요?`, { title: "관리자 지정", confirmText: "지정" })) return;
           try {
             await updateDoc(doc(db, "users", user.uid), { role: "admin" });
+            await writeAudit("admin_promote", user, "일반사용자를 관리자로 지정");
             await loadUsers();
           } catch (error) {
             console.error(error);
-            await showNotice("관리자 지정에 실패했습니다.");
+            await showNotice(firebaseErrorMessage(error, "관리자 지정에 실패했습니다."));
           }
         }));
       }
@@ -573,10 +736,11 @@ function renderUsers() {
             bingoAccess: "write",
             killSheetAccess: "write"
           });
+          await writeAudit("admin_demote", user, "관리자를 일반사용자로 변경");
           await loadUsers();
         } catch (error) {
           console.error(error);
-          await showNotice("관리자 해제에 실패했습니다.");
+          await showNotice(firebaseErrorMessage(error, "관리자 해제에 실패했습니다."));
         }
       }));
     }

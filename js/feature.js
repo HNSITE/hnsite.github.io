@@ -1,7 +1,8 @@
 import { auth, db } from "./firebase-config.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
-import { initUserManagementModal } from "./admin-modal.js?v=24";
+import { initUserManagementModal } from "./admin-modal.js?v=25";
+import { firebaseErrorMessage } from "./error-messages.js?v=25";
 
 const feature = document.body.dataset.feature;
 const loadingPanel = document.getElementById("loadingPanel");
@@ -20,7 +21,7 @@ async function loadProfile(user) {
   if (!snap.exists()) throw new Error("등록되지 않은 계정입니다.");
   const profile = snap.data();
   if (profile.status !== "approved") throw new Error("승인되지 않았거나 사용중지된 계정입니다.");
-  return profile;
+  return { uid: user.uid, ...profile };
 }
 
 onAuthStateChanged(auth, async (user) => {
@@ -51,13 +52,14 @@ onAuthStateChanged(auth, async (user) => {
     console.error(error);
     loadingPanel.innerHTML = `
       <h2>접근할 수 없습니다.</h2>
-      <p>${error.message}</p>
+      <p>${firebaseErrorMessage(error, error.message || "이 메뉴에 접근할 수 없습니다.")}</p>
       <a class="service-button inline-button" href="./app.html">메인으로 돌아가기</a>
     `;
   }
 });
 
 document.getElementById("logoutButton").addEventListener("click", async () => {
+  sessionStorage.removeItem("churangArchiveRoomId");
   await signOut(auth);
   location.replace("./index.html");
 });

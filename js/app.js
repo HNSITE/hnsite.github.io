@@ -1,8 +1,9 @@
 import { auth, db } from "./firebase-config.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
-import { initUserManagementModal } from "./admin-modal.js?v=24";
+import { initUserManagementModal } from "./admin-modal.js?v=25";
 import { showNotice } from "./ui-dialog.js?v=14";
+import { firebaseErrorMessage } from "./error-messages.js?v=25";
 
 const loadingPanel = document.getElementById("loadingPanel");
 const appContent = document.getElementById("appContent");
@@ -86,7 +87,7 @@ onAuthStateChanged(auth, async (user) => {
     console.error(error);
     loadingPanel.innerHTML = `
       <h2>접근할 수 없습니다.</h2>
-      <p>${error.message}</p>
+      <p>${firebaseErrorMessage(error, error.message || "접근할 수 없습니다.")}</p>
       <button id="backLogin" type="button">로그인 화면으로</button>
     `;
 
@@ -98,6 +99,7 @@ onAuthStateChanged(auth, async (user) => {
 });
 
 document.getElementById("logoutButton").addEventListener("click", async () => {
+  sessionStorage.removeItem("churangArchiveRoomId");
   await signOut(auth);
   location.replace("./index.html");
 });

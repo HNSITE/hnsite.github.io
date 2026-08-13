@@ -17,7 +17,7 @@
     })();
   </script>
   <title>빙고방 | CHURANG</title>
-  <link rel="stylesheet" href="./assets/styles.css?v=24" />
+  <link rel="stylesheet" href="./assets/styles.css?v=25" />
 </head>
 <body class="app-page bingo-room-page">
   <header class="topbar app-topbar">
@@ -46,6 +46,7 @@
           <div id="roomActions" class="room-actions"></div>
         </div>
         <p id="roomMessage" class="message room-inline-message"></p>
+        <div id="roomClosedNotice" class="room-closed-notice hidden">종료된 빙고방입니다. 결과만 확인할 수 있습니다.</div>
 
         <div id="participantManagePanel" class="room-participant-inline hidden">
           <div class="section-title-row participant-inline-head">
@@ -110,14 +111,28 @@
             <span class="bingo-toolbar-label">빙고판</span>
             <button id="selectAllCellsButton" class="secondary compact-button" type="button">전체 선택</button>
             <button id="clearAllCellsButton" class="danger-outline compact-button" type="button">전체 해제</button>
+            <button id="undoBoardButton" class="secondary compact-button" type="button" disabled>실행 취소</button>
           </div>
           <div class="bingo-toolbar-group chicken-toolbar-group">
             <span class="bingo-toolbar-label">먹은 치킨 수량</span>
             <button id="decreaseChickenButton" class="secondary compact-button chicken-step-button" type="button">-1</button>
             <button id="increaseChickenButton" class="secondary compact-button chicken-step-button" type="button">+1</button>
+            <button id="chickenHistoryButton" class="secondary compact-button" type="button">치킨 기록</button>
           </div>
         </div>
 
+        <div id="chickenHistoryPanel" class="chicken-history-panel hidden">
+          <div class="chicken-history-head">
+            <div>
+              <strong>치킨 기록</strong>
+              <p>수량 변경 사용자와 시간을 확인하고, 잘못 입력한 기록은 취소할 수 있습니다.</p>
+            </div>
+            <button id="closeChickenHistoryButton" class="secondary compact-button" type="button">닫기</button>
+          </div>
+          <div id="chickenHistoryList" class="chicken-history-list"></div>
+        </div>
+
+        <p class="board-mobile-hint">큰 빙고판은 좌우로 움직여 전체 칸을 확인할 수 있습니다.</p>
         <div class="board-scroll-wrap">
           <div id="bingoBoard" class="bingo-board" aria-label="빙고판"></div>
         </div>
@@ -125,7 +140,7 @@
     </div>
   </main>
 
-  <script type="module" src="./js/bingo-room.js?v=24"></script>
-  <script type="module" src="./js/update-modal.js?v=24"></script>
+  <script type="module" src="./js/bingo-room.js?v=25"></script>
+  <script type="module" src="./js/update-modal.js?v=25"></script>
 </body>
 </html>

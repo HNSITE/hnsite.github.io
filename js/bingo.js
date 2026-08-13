@@ -17,7 +17,8 @@ import {
   uploadBytes
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
 import { BINGO_IMAGE_POLICY, compressBingoImage } from "./image-policy.js?v=7";
-import { initUserManagementModal } from "./admin-modal.js?v=24";
+import { initUserManagementModal } from "./admin-modal.js?v=25";
+import { firebaseErrorMessage } from "./error-messages.js?v=25";
 
 const loadingPanel = document.getElementById("loadingPanel");
 const bingoContent = document.getElementById("bingoContent");
@@ -41,12 +42,18 @@ const alphabetModeHelp = document.getElementById("alphabetModeHelp");
 const customAlphabetPanel = document.getElementById("customAlphabetPanel");
 const customAlphabetGrid = document.getElementById("customAlphabetGrid");
 const customAlphabetCount = document.getElementById("customAlphabetCount");
+const alphabetBulkInput = document.getElementById("alphabetBulkInput");
+const applyAlphabetBulkButton = document.getElementById("applyAlphabetBulkButton");
+const fillAlphabetRandomButton = document.getElementById("fillAlphabetRandomButton");
+const shuffleAlphabetButton = document.getElementById("shuffleAlphabetButton");
+const clearAlphabetButton = document.getElementById("clearAlphabetButton");
 
 let currentUser = null;
 let currentProfile = null;
 let currentMembership = null;
 let selectableUsers = [];
 let visibleRooms = [];
+let roomSummaries = new Map();
 let selectedParticipantUids = new Set();
 let participantSearchTerm = "";
 let participantPage = 1;
@@ -82,6 +89,33 @@ function createRandomAlphabetValues(total) {
   return values;
 }
 
+function shuffleAlphabetValues(values) {
+  const next = [...values];
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [next[index], next[randomIndex]] = [next[randomIndex], next[index]];
+  }
+  return next;
+}
+
+function extractAlphabetValues(value) {
+  return (String(value || "").toUpperCase().match(/[A-Z]/g) || []);
+}
+
+function customAlphabetInputs() {
+  return [...customAlphabetGrid.querySelectorAll("input")];
+}
+
+function applyCustomAlphabetValues(values, startIndex = 0) {
+  const inputs = customAlphabetInputs();
+  values.forEach((value, offset) => {
+    const input = inputs[startIndex + offset];
+    if (!input) return;
+    input.value = normalizeAlphabetValue(value);
+    input.classList.remove("invalid");
+  });
+}
+
 function normalizeAlphabetValue(value) {
   return String(value || "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 1);
 }
@@ -109,6 +143,13 @@ function renderCustomAlphabetGrid() {
     input.addEventListener("input", () => {
       input.value = normalizeAlphabetValue(input.value);
       input.classList.remove("invalid");
+    });
+    input.addEventListener("paste", (event) => {
+      const pasted = extractAlphabetValues(event.clipboardData?.getData("text"));
+      if (pasted.length <= 1) return;
+      event.preventDefault();
+      applyCustomAlphabetValues(pasted, index);
+      customAlphabetInputs()[Math.min(total - 1, index + pasted.length - 1)]?.focus();
     });
     fragment.appendChild(input);
   }
@@ -192,10 +233,62 @@ async function loadVisibleRooms() {
   });
 
   visibleRooms = [...rooms.values()].sort((a, b) => {
-    const aMillis = a.createdAt?.toMillis?.() || 0;
-    const bMillis = b.createdAt?.toMillis?.() || 0;
+    const aClosed = a.status === "closed" ? 1 : 0;
+    const bClosed = b.status === "closed" ? 1 : 0;
+    if (aClosed !== bClosed) return aClosed - bClosed;
+    const aMillis = a.updatedAt?.toMillis?.() || a.createdAt?.toMillis?.() || 0;
+    const bMillis = b.updatedAt?.toMillis?.() || b.createdAt?.toMillis?.() || 0;
     return bMillis - aMillis;
   });
+}
+
+function isClosedRoom(room) {
+  return room?.status === "closed";
+}
+
+function progressFromRoomBoard(room, board) {
+  const size = Number(room?.size) || 0;
+  const total = size * size;
+  const checked = board?.checkedCells || {};
+  const selected = new Set();
+  for (let index = 0; index < total; index += 1) {
+    if (checked[String(index)] === true) selected.add(index);
+  }
+  let completed = 0;
+  for (let row = 0; row < size; row += 1) {
+    if (Array.from({ length: size }, (_, col) => row * size + col).every((i) => selected.has(i))) completed += 1;
+  }
+  for (let col = 0; col < size; col += 1) {
+    if (Array.from({ length: size }, (_, row) => row * size + col).every((i) => selected.has(i))) completed += 1;
+  }
+  if (size && Array.from({ length: size }, (_, i) => i * size + i).every((i) => selected.has(i))) completed += 1;
+  if (size && Array.from({ length: size }, (_, i) => i * size + (size - 1 - i)).every((i) => selected.has(i))) completed += 1;
+  return { completed, checked: selected.size, total, chicken: Math.max(0, Number(board?.chickenCount) || 0) };
+}
+
+function formatRoomTime(value) {
+  const date = value?.toDate?.();
+  if (!date) return "-";
+  return new Intl.DateTimeFormat("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+}
+
+async function loadRoomSummaries() {
+  const entries = await Promise.all(visibleRooms.map(async (room) => {
+    try {
+      const snap = await getDoc(doc(db, "bingoBoards", room.id));
+      return [room.id, snap.exists() ? progressFromRoomBoard(room, snap.data()) : null];
+    } catch (error) {
+      console.error("빙고방 진행 정보 조회 실패", room.id, error);
+      return [room.id, null];
+    }
+  }));
+  roomSummaries = new Map(entries);
+}
+
+function openRoom(roomId, archived = false) {
+  if (archived) sessionStorage.setItem("churangArchiveRoomId", roomId);
+  else sessionStorage.removeItem("churangArchiveRoomId");
+  location.href = "./bingo-room.html";
 }
 
 function renderCurrentRoom() {
@@ -218,8 +311,9 @@ function renderCurrentRoom() {
       <h3>${escapeHtml(room?.name || "현재 빙고방")}</h3>
       <p>${room?.size || "-"} × ${room?.size || "-"} · ${boardTypeLabel(room)}</p>
     </div>
-    <a class="service-button" href="./bingo-room.html">현재 방으로 이동</a>
+    <button id="openCurrentRoomButton" class="service-button" type="button">현재 방으로 이동</button>
   `;
+  document.getElementById("openCurrentRoomButton")?.addEventListener("click", () => openRoom(room.id, false));
 }
 
 function matchesParticipantSearch(user, term) {
@@ -302,6 +396,7 @@ function renderParticipantList() {
 }
 
 function roomStatusText(room) {
+  if (isClosedRoom(room)) return "종료";
   if (room.ownerUid === currentUser.uid) return "내가 만든 방";
   if (currentMembership?.roomId === room.id) return "현재 참가 중";
   return "초대받은 방";
@@ -309,7 +404,7 @@ function roomStatusText(room) {
 
 function renderRoomList() {
   if (!visibleRooms.length) {
-    roomList.innerHTML = `<div class="empty-list-box">현재 참가 가능한 빙고방이 없습니다.</div>`;
+    roomList.innerHTML = `<div class="empty-list-box">현재 확인할 수 있는 빙고방이 없습니다.</div>`;
     return;
   }
 
@@ -317,29 +412,45 @@ function renderRoomList() {
 
   visibleRooms.forEach((room) => {
     const isOwner = room.ownerUid === currentUser.uid;
-    const isCurrent = currentMembership?.roomId === room.id;
+    const isCurrent = currentMembership?.roomId === room.id && !isClosedRoom(room);
+    const closed = isClosedRoom(room);
+    const summary = roomSummaries.get(room.id);
     const card = document.createElement("article");
-    card.className = `bingo-room-item${isCurrent ? " current" : ""}`;
+    card.className = `bingo-room-item${isCurrent ? " current" : ""}${closed ? " closed" : ""}`;
 
     let actionHtml = "";
-    if (isCurrent) {
-      actionHtml = `<a class="service-button" href="./bingo-room.html">들어가기</a>`;
+    if (closed) {
+      actionHtml = `<button class="secondary open-archive-room-button" data-room-id="${escapeAttribute(room.id)}" type="button">결과 보기</button>`;
+    } else if (isCurrent) {
+      actionHtml = `<button class="service-button open-current-room-button" data-room-id="${escapeAttribute(room.id)}" type="button">들어가기</button>`;
     } else if (isOwner) {
-      actionHtml = `<span class="room-blocked-text">내 방이지만 현재 상태를 확인해주세요.</span>`;
+      actionHtml = `<span class="room-blocked-text">현재 참가정보를 확인해주세요.</span>`;
     } else if (currentMembership) {
       const reason = currentMembership.role === "owner"
-        ? "내가 만든 방을 삭제한 후 참가할 수 있습니다."
+        ? "현재 방을 종료하거나 삭제한 후 참가할 수 있습니다."
         : "현재 방에서 나간 후 참가할 수 있습니다.";
       actionHtml = `<button class="secondary" type="button" disabled>${reason}</button>`;
     } else {
       actionHtml = `<button class="join-room-button" data-room-id="${escapeAttribute(room.id)}" type="button">참가하기</button>`;
     }
 
+    const participantCount = (room.participantUids?.length || 0) + 1;
+    const progressText = summary
+      ? `완성 ${summary.completed}줄 · ${summary.checked}/${summary.total}칸 · ${summary.chicken}치킨`
+      : "진행 정보 확인 불가";
+
     card.innerHTML = `
       <div class="bingo-room-item-main">
-        <span class="room-state-badge">${roomStatusText(room)}</span>
+        <div class="room-card-badges">
+          <span class="room-state-badge">${roomStatusText(room)}</span>
+          <span class="room-type-badge">${boardTypeLabel(room)}</span>
+        </div>
         <h3>${escapeHtml(room.name)}</h3>
-        <p>${room.size} × ${room.size} · ${boardTypeLabel(room)} · 초대 ${room.participantUids?.length || 0}명</p>
+        <p>${room.size} × ${room.size} · 참가자 ${participantCount}명</p>
+        <div class="room-card-detail">
+          <span>${progressText}</span>
+          <span>최근 수정 ${formatRoomTime(room.updatedAt)}</span>
+        </div>
       </div>
       <div class="bingo-room-item-action">${actionHtml}</div>
     `;
@@ -349,6 +460,12 @@ function renderRoomList() {
 
   roomList.querySelectorAll(".join-room-button").forEach((button) => {
     button.addEventListener("click", () => joinRoom(button.dataset.roomId));
+  });
+  roomList.querySelectorAll(".open-current-room-button").forEach((button) => {
+    button.addEventListener("click", () => openRoom(button.dataset.roomId, false));
+  });
+  roomList.querySelectorAll(".open-archive-room-button").forEach((button) => {
+    button.addEventListener("click", () => openRoom(button.dataset.roomId, true));
   });
 }
 
@@ -372,11 +489,12 @@ async function loadSelectableUsers() {
 async function refreshAll() {
   currentMembership = await loadMembership();
   await loadVisibleRooms();
+  await loadRoomSummaries();
 
-  // membership은 남아 있는데 실제로 접근 가능한 방이 없다면 고아 참가정보입니다.
-  // 참가자 제거, 방 삭제 중 페이지 이동 등 어떤 경우라도 여기서 자동 정리합니다.
+  // membership은 남아 있는데 방이 삭제되었거나 종료됐다면 고아 참가정보로 정리합니다.
   if (currentMembership) {
-    const membershipRoomExists = visibleRooms.some((room) => room.id === currentMembership.roomId);
+    const membershipRoom = visibleRooms.find((room) => room.id === currentMembership.roomId);
+    const membershipRoomExists = Boolean(membershipRoom) && !isClosedRoom(membershipRoom);
 
     if (!membershipRoomExists) {
       const membershipRef = doc(db, "bingoMemberships", currentUser.uid);
@@ -399,7 +517,7 @@ async function joinRoom(roomId) {
 
   if (currentMembership) {
     setMessage(currentMembership.role === "owner"
-      ? "현재 생성한 빙고방을 삭제한 후 다른 방에 참가할 수 있습니다."
+      ? "현재 진행 중인 빙고방을 종료하거나 삭제한 후 다른 방에 참가할 수 있습니다."
       : "현재 참가 중인 빙고방에서 나간 후 다른 방에 참가할 수 있습니다.");
     return;
   }
@@ -416,6 +534,7 @@ async function joinRoom(roomId) {
       if (!roomSnap.exists()) throw new Error("ROOM_NOT_FOUND");
 
       const room = roomSnap.data();
+      if (room.status === "closed") throw new Error("ROOM_CLOSED");
       if (!(room.participantUids || []).includes(currentUser.uid)) {
         throw new Error("NOT_INVITED");
       }
@@ -434,8 +553,10 @@ async function joinRoom(roomId) {
       setMessage("이미 다른 빙고방에 참가 중입니다.");
     } else if (error.message === "NOT_INVITED") {
       setMessage("현재 이 방의 참가자로 지정되어 있지 않습니다.");
+    } else if (error.message === "ROOM_CLOSED") {
+      setMessage("이미 종료된 빙고방입니다. 결과 보기만 가능합니다.");
     } else {
-      setMessage("방 참가에 실패했습니다. 다시 시도해주세요.");
+      setMessage(firebaseErrorMessage(error, "방 참가에 실패했습니다. 다시 시도해주세요."));
     }
     await refreshAll();
   }
@@ -452,7 +573,7 @@ async function createRoom(event) {
 
   if (currentMembership) {
     setMessage(currentMembership.role === "owner"
-      ? "이미 생성한 빙고방이 있습니다. 기존 방을 삭제한 후 새 방을 만들 수 있습니다."
+      ? "이미 진행 중인 빙고방이 있습니다. 기존 방을 종료하거나 삭제한 후 새 방을 만들 수 있습니다."
       : "현재 다른 빙고방에 참가 중입니다. 기존 방을 나간 후 새 방을 만들 수 있습니다.");
     return;
   }
@@ -525,6 +646,9 @@ async function createRoom(event) {
         boardType,
         alphabetMode,
         participantUids,
+        status: "active",
+        closedAt: null,
+        closedByUid: "",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
@@ -565,12 +689,8 @@ async function createRoom(event) {
 
     if (error.message === "ALREADY_IN_ROOM") {
       setMessage("이미 다른 빙고방에 참여 중입니다.");
-    } else if (error?.code?.startsWith?.("storage/")) {
-      setMessage("사진 업로드에 실패했습니다. Storage 규칙이 게시되었는지 확인해주세요.");
-    } else if (error.message) {
-      setMessage(error.message);
     } else {
-      setMessage("빙고방 생성에 실패했습니다. 다시 시도해주세요.");
+      setMessage(firebaseErrorMessage(error, error.message || "빙고방 생성에 실패했습니다. 다시 시도해주세요."));
     }
   } finally {
     createRoomButton.disabled = false;
@@ -605,7 +725,7 @@ document.getElementById("showCreateButton").addEventListener("click", () => {
   }
   if (currentMembership) {
     setMessage(currentMembership.role === "owner"
-      ? "이미 생성한 방이 있습니다. 기존 방을 삭제한 후 새 방을 만들 수 있습니다."
+      ? "이미 진행 중인 방이 있습니다. 기존 방을 종료하거나 삭제한 후 새 방을 만들 수 있습니다."
       : "현재 참가 중인 방에서 나간 후 새 방을 만들 수 있습니다.");
     return;
   }
@@ -631,7 +751,7 @@ document.getElementById("refreshRoomsButton").addEventListener("click", async ()
     await refreshAll();
   } catch (error) {
     console.error(error);
-    setMessage("방 목록을 새로고침하지 못했습니다.");
+    setMessage(firebaseErrorMessage(error, "방 목록을 새로고침하지 못했습니다."));
   }
 });
 
@@ -642,6 +762,38 @@ roomSizeSelect.addEventListener("change", () => {
   if (boardTypeSelect.value === "alphabet" && alphabetModeSelect.value === "custom") {
     renderCustomAlphabetGrid();
   }
+});
+
+applyAlphabetBulkButton?.addEventListener("click", () => {
+  const values = extractAlphabetValues(alphabetBulkInput?.value);
+  if (!values.length) {
+    setMessage("입력할 알파벳을 A~Z로 입력해주세요.");
+    return;
+  }
+  applyCustomAlphabetValues(values);
+  setMessage(`${Math.min(values.length, customAlphabetInputs().length)}칸을 입력했습니다.`, true);
+});
+
+fillAlphabetRandomButton?.addEventListener("click", () => {
+  applyCustomAlphabetValues(createRandomAlphabetValues(customAlphabetInputs().length));
+  setMessage("알파벳을 자동으로 채웠습니다.", true);
+});
+
+shuffleAlphabetButton?.addEventListener("click", () => {
+  const inputs = customAlphabetInputs();
+  const current = inputs.map((input) => normalizeAlphabetValue(input.value));
+  const values = current.every(Boolean) ? shuffleAlphabetValues(current) : createRandomAlphabetValues(inputs.length);
+  applyCustomAlphabetValues(values);
+  setMessage(current.every(Boolean) ? "현재 알파벳 순서를 섞었습니다." : "빈칸이 있어 A~Z로 자동 채운 뒤 섞었습니다.", true);
+});
+
+clearAlphabetButton?.addEventListener("click", () => {
+  customAlphabetInputs().forEach((input) => {
+    input.value = "";
+    input.classList.remove("invalid");
+  });
+  if (alphabetBulkInput) alphabetBulkInput.value = "";
+  setMessage("알파벳 입력을 비웠습니다.", true);
 });
 
 participantSearch.addEventListener("input", () => {
@@ -667,6 +819,7 @@ roomImage.addEventListener("change", () => {
 document.getElementById("createRoomForm").addEventListener("submit", createRoom);
 
 document.getElementById("logoutButton").addEventListener("click", async () => {
+  sessionStorage.removeItem("churangArchiveRoomId");
   await signOut(auth);
   location.replace("./index.html");
 });
@@ -708,7 +861,7 @@ onAuthStateChanged(auth, async (user) => {
     console.error(error);
     loadingPanel.innerHTML = `
       <h2>빙고에 접근할 수 없습니다.</h2>
-      <p>${escapeHtml(error.message)}</p>
+      <p>${escapeHtml(firebaseErrorMessage(error, error.message || "빙고에 접근할 수 없습니다."))}</p>
       <a class="service-button inline-button" href="./app.html">메인으로 돌아가기</a>
     `;
   }
