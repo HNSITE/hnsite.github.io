@@ -82,7 +82,10 @@ const createChannelMessage =
     "createChannelMessage"
   );
 
+const channelSearch =
+  document.getElementById("channelSearch");
 
+let channelSearchTerm = "";
 let currentUser = null;
 let currentProfile = null;
 let memberships = [];
@@ -533,135 +536,94 @@ async function loadChannels() {
 ========================================= */
 
 function renderChannels() {
+  channelList.innerHTML = "";
 
-  channelList.innerHTML =
-    "";
+  const searchTerm =
+    channelSearchTerm
+      .trim()
+      .toLocaleLowerCase("ko");
 
+  const filteredMemberships =
+    memberships.filter((membership) => {
+      const channel =
+        membership.channel;
+
+      const channelName =
+        channel?.name ||
+        membership.channelName ||
+        "";
+
+      return (
+        !searchTerm ||
+        channelName
+          .toLocaleLowerCase("ko")
+          .includes(searchTerm)
+      );
+    });
 
   if (!memberships.length) {
-
     channelList.innerHTML = `
-      <div
-        class="panel channel-empty"
-      >
-
+      <div class="panel channel-empty">
         <strong>
           현재 연결된 채널이 없습니다.
         </strong>
-
         <span>
           채널 소유자에게 초대를 받아주세요.
         </span>
-
       </div>
     `;
 
     return;
   }
 
+  if (!filteredMemberships.length) {
+    channelList.innerHTML = `
+      <div class="panel channel-empty">
+        <strong>
+          검색 결과가 없습니다.
+        </strong>
+        <span>
+          다른 채널 이름으로 검색해보세요.
+        </span>
+      </div>
+    `;
 
-  memberships.forEach(
+    return;
+  }
+
+  filteredMemberships.forEach(
     (membership) => {
-
       const channel =
         membership.channel;
-
-      const developer =
-        isDeveloper(
-          currentProfile
-        );
-
-      const status =
-        developer
-          ? "approved"
-          : normalizeMemberStatus(
-              membership.status
-            );
-
-
-      const roleText =
-        developer
-          ? "개발자"
-          : channelRoleLabel(
-              membership.role
-            );
-
-
-      const statusText =
-        developer
-          ? "모든 채널 접근"
-          : status === "pending"
-          ? "승인 대기"
-          : "이용 가능";
-
 
       const card =
         document.createElement(
           "article"
         );
 
-
       card.className =
         "panel channel-card";
 
-
       card.innerHTML = `
-
-        <div
-          class="channel-card-head"
-          style="
-            display:flex;
-            align-items:center;
-            gap:16px;
-          "
-        >
+        <div class="channel-card-head">
 
           ${
             channel.photoURL
               ? `
                 <img
-                  src="${escapeHtml(
-                    channel.photoURL
-                  )}"
-                  alt=""
-                  style="
-                    width:72px;
-                    height:72px;
-                    border-radius:16px;
-                    object-fit:cover;
-                    flex:0 0 auto;
-                  "
+                  class="channel-card-image"
+                  src="${escapeHtml(channel.photoURL)}"
+                  alt="${escapeHtml(channel.name || "채널")} 대표 이미지"
                 />
               `
               : `
-                <div
-                  style="
-                    width:72px;
-                    height:72px;
-                    border-radius:16px;
-                    background:#f0ecfa;
-                    display:grid;
-                    place-items:center;
-                    font-weight:900;
-                    color:#8064cb;
-                    flex:0 0 auto;
-                  "
-                >
+                <div class="channel-card-image channel-card-image-empty">
                   H
                 </div>
               `
           }
 
-
-          <div>
-
-            <span
-              class="room-state-badge"
-            >
-              ${escapeHtml(roleText)}
-            </span>
-
-
+          <div class="channel-card-info">
             <h2>
               ${escapeHtml(
                 channel.name ||
@@ -669,31 +631,19 @@ function renderChannels() {
                 "HNSITE 채널"
               )}
             </h2>
-
-
-            <p class="muted">
-              ${escapeHtml(statusText)}
-            </p>
-
           </div>
 
         </div>
 
-
-        <div
-          class="channel-card-actions"
-        >
-
+        <div class="channel-card-actions">
           <button
             class="select-channel-button"
             type="button"
           >
             이 채널 사용
           </button>
-
         </div>
       `;
-
 
       card
         .querySelector(
@@ -702,24 +652,15 @@ function renderChannels() {
         .addEventListener(
           "click",
           () => {
-
             setCurrentChannelId(
               currentUser.uid,
               channel.id
             );
 
-            /*
-             * pending 사용자도
-             * app.html까지 이동한다.
-             *
-             * app.js에서 승인대기 화면 표시.
-             */
             location.href =
               "./app.html";
-
           }
         );
-
 
       channelList.appendChild(
         card

@@ -92,3 +92,175 @@ body.modal-open{overflow:hidden}.update-news-button{display:inline-flex;align-it
 @media(max-width:760px){.channel-grid{grid-template-columns:1fr}.channel-hero h1{font-size:28px}.channel-create-form{grid-template-columns:1fr}.channel-card-actions{display:grid;grid-template-columns:1fr 1fr}.channel-card-actions .select-channel-button{grid-column:1/-1}.channel-member-row{align-items:stretch;flex-direction:column}.channel-member-controls{justify-content:flex-start}.channel-member-controls select{flex:1;min-width:0}.channel-badge{max-width:120px}}
 
 .developer-channel-admin-head{margin-top:24px;padding-top:20px;border-top:1px solid #ebe6f0}.developer-channel-admin-head h3{margin:0 0 5px}.developer-channel-admin-head p{margin:0}.developer-channel-admin-list{display:grid;gap:9px;margin-top:14px}.developer-channel-admin-row{display:grid;grid-template-columns:minmax(190px,1.5fr) 120px 145px auto auto;gap:8px;align-items:center;padding:11px 12px;border:1px solid #e8e3ef;border-radius:14px;background:#fff}.developer-channel-admin-info{display:grid;gap:3px;min-width:0}.developer-channel-admin-info strong,.developer-channel-admin-info small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.developer-channel-admin-info small{color:#8a8292;font-size:10px}.developer-feature-check{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800}.developer-feature-check input{width:16px;height:16px}@media(max-width:760px){.developer-channel-admin-row{grid-template-columns:1fr 1fr}.developer-channel-admin-info{grid-column:1/-1}.developer-subscription-end{grid-column:2}.developer-channel-save{grid-column:1/-1}}
+
+/* 채널 선택 화면 */
+.channel-page-wrap {
+  max-width: 900px;
+  padding-top: 42px;
+}
+
+.channel-hero {
+  margin-bottom: 24px;
+}
+
+.channel-hero h1 {
+  margin: 6px 0 0;
+  font-size: 32px;
+  letter-spacing: -.04em;
+}
+
+/* 상단 채널 생성 버튼 */
+.channel-create-top-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid #d8cdef;
+  border-radius: 12px;
+  background: #f7f3ff;
+  color: #7257bd;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+  transition:
+    background .15s ease,
+    border-color .15s ease,
+    transform .15s ease;
+}
+
+.channel-create-top-button:hover {
+  background: #efe8ff;
+  border-color: #c5b3e7;
+  transform: translateY(-1px);
+}
+
+.channel-create-plus {
+  font-size: 17px;
+  line-height: 1;
+}
+
+/* 채널 검색 */
+.channel-search-wrap {
+  margin-bottom: 20px;
+}
+
+.channel-search-input {
+  width: 100%;
+  height: 48px;
+  padding: 0 16px;
+  border: 1px solid #ddd7e8;
+  border-radius: 15px;
+  background: #fff;
+  color: #40384d;
+  outline: none;
+  box-shadow: 0 6px 18px rgba(65, 55, 89, .04);
+  transition:
+    border-color .15s ease,
+    box-shadow .15s ease;
+}
+
+.channel-search-input::placeholder {
+  color: #9a92a5;
+}
+
+.channel-search-input:focus {
+  border-color: #aa94dc;
+  box-shadow: 0 0 0 4px rgba(133, 104, 203, .10);
+}
+
+/* 채널 카드 */
+.channel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.channel-card {
+  margin: 0;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 190px;
+  border-radius: 22px;
+}
+
+.channel-card-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.channel-card-image {
+  width: 72px;
+  height: 72px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 18px;
+}
+
+.channel-card-image-empty {
+  display: grid;
+  place-items: center;
+  background: #f0ecfa;
+  color: #8064cb;
+  font-weight: 900;
+}
+
+.channel-card-info {
+  min-width: 0;
+}
+
+.channel-card-info h2 {
+  margin: 0;
+  color: #30293c;
+  font-size: 22px;
+  letter-spacing: -.035em;
+}
+
+.channel-card-actions {
+  margin-top: 22px;
+}
+
+.select-channel-button {
+  width: 100%;
+  border-radius: 13px;
+  background: linear-gradient(
+    135deg,
+    #8d72d5,
+    #765cc6
+  );
+}
+
+.channel-empty {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 7px;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.channel-empty span {
+  color: #81788c;
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .channel-page-wrap {
+    padding-top: 26px;
+  }
+
+  .channel-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .channel-create-top-button {
+    padding: 0 10px;
+  }
+
+  .channel-card {
+    min-height: 170px;
+  }
+}

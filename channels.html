@@ -43,14 +43,14 @@
       aria-label="사용자 메뉴"
     >
 
-      <!-- developer에게만 표시 -->
-      <button
-        id="openCreateChannelButton"
-        class="topbar-link hidden"
-        type="button"
-      >
-        + 채널 생성
-      </button>
+<button
+  id="openCreateChannelButton"
+  class="channel-create-top-button hidden"
+  type="button"
+>
+  <span class="channel-create-plus">＋</span>
+  <span>채널 생성</span>
+</button>
 
       <span
         id="userEmail"
@@ -103,16 +103,23 @@
           <h1>
             사용할 채널을 선택하세요
           </h1>
-
-          <p class="muted">
-            소유한 채널과 가입한 채널이 표시됩니다.
-          </p>
-
         </div>
 
       </section>
 
+<div class="channel-search-wrap">
+  <input
+    id="channelSearch"
+    class="channel-search-input"
+    type="search"
+    placeholder="채널 이름 검색"
+    autocomplete="off"
+    aria-label="채널 검색"
+  />
+</div>
 
+<p id="channelMessage" class="message"></p>
+<section id="channelList" class="channel-grid"></section>
       <p
         id="channelMessage"
         class="message"
