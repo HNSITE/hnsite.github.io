@@ -5,6 +5,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
   serverTimestamp,
   updateDoc,
@@ -22,6 +23,7 @@ let currentProfile = null;
 let allUsers = [];
 let activeTab = "pending";
 let initialized = false;
+let pendingUsersUnsubscribe = null;
 
 const tabState = {
   pending: { search: "", sortKey: "name", sortDir: "asc", page: 1 },
@@ -170,11 +172,31 @@ function ensureModal() {
   });
 }
 
+function ensurePendingRequestBadge(button) {
+  let badge = button.querySelector("#userManagePendingBadge");
+  if (badge) return badge;
+
+  const label = document.createElement("span");
+  label.textContent = "사용자 관리";
+
+  badge = document.createElement("span");
+  badge.id = "userManagePendingBadge";
+  badge.className = "admin-pending-badge hidden";
+  badge.textContent = "0";
+  badge.setAttribute("aria-label", "승인 대기 0명");
+
+  button.replaceChildren(label, badge);
+  return badge;
+}
+
 function ensureManageButton() {
   if (!isManager()) return null;
 
   let button = document.getElementById("userManageButton");
-  if (button) return button;
+  if (button) {
+    ensurePendingRequestBadge(button);
+    return button;
+  }
 
   const nav = document.querySelector(".topbar-user");
   if (!nav) return null;
@@ -183,11 +205,35 @@ function ensureManageButton() {
   button.id = "userManageButton";
   button.type = "button";
   button.className = "topbar-link admin-manage-button";
-  button.textContent = "사용자 관리";
+  ensurePendingRequestBadge(button);
 
   const email = nav.querySelector(".topbar-email");
   nav.insertBefore(button, email || nav.firstChild);
   return button;
+}
+
+function setPendingRequestBadge(count) {
+  const badge = document.getElementById("userManagePendingBadge");
+  if (!badge) return;
+
+  const safeCount = Math.max(0, Number(count) || 0);
+  badge.textContent = safeCount > 99 ? "99+" : String(safeCount);
+  badge.classList.toggle("hidden", safeCount === 0);
+  badge.setAttribute("aria-label", `승인 대기 ${safeCount}명`);
+}
+
+function startPendingUsersWatcher() {
+  if (pendingUsersUnsubscribe || !isManager()) return;
+
+  const pendingQuery = query(collection(db, "users"), where("status", "==", "pending"));
+  pendingUsersUnsubscribe = onSnapshot(
+    pendingQuery,
+    (snapshot) => setPendingRequestBadge(snapshot.size),
+    (error) => {
+      console.error("Failed to watch pending users.", error);
+      setPendingRequestBadge(0);
+    }
+  );
 }
 
 export function initUserManagementModal(profile) {
@@ -201,6 +247,7 @@ export function initUserManagementModal(profile) {
     button.addEventListener("click", openUserManagementModal);
   }
 
+  startPendingUsersWatcher();
   initialized = true;
   return { open: openUserManagementModal };
 }
@@ -233,7 +280,9 @@ async function loadUsers() {
     const snap = await getDocs(collection(db, "users"));
     allUsers = snap.docs.map((item) => ({ uid: item.id, ...item.data() }));
 
-    document.getElementById("pendingUsersCount").textContent = String(allUsers.filter((user) => user.status === "pending").length);
+    const pendingCount = allUsers.filter((user) => user.status === "pending").length;
+    document.getElementById("pendingUsersCount").textContent = String(pendingCount);
+    setPendingRequestBadge(pendingCount);
     document.getElementById("approvedUsersCount").textContent = String(allUsers.filter((user) => user.status !== "pending").length);
     message.textContent = "";
     renderTabs();

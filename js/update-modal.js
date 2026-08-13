@@ -1,5 +1,4 @@
-const UPDATE_STORAGE_KEY = "churang:last-read-update";
-const LATEST_UPDATE_KEY = "2026-08-13-v23";
+const UPDATE_BADGE_DAYS = 3;
 
 const updates = [
   {
@@ -97,28 +96,32 @@ function setUnreadBadgeVisible(visible) {
   document.getElementById("updateUnreadBadge")?.classList.toggle("hidden", !visible);
 }
 
-function markLatestUpdateRead() {
-  try {
-    localStorage.setItem(UPDATE_STORAGE_KEY, LATEST_UPDATE_KEY);
-  } catch (error) {
-    console.warn("업데이트 읽음 상태를 저장하지 못했습니다.", error);
-  }
-  setUnreadBadgeVisible(false);
+function parseUpdateDate(value) {
+  const parts = String(value || "").split(".").map(Number);
+  if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return null;
+
+  const [year, month, day] = parts;
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  return date;
 }
 
-function hasUnreadUpdate() {
-  try {
-    return localStorage.getItem(UPDATE_STORAGE_KEY) !== LATEST_UPDATE_KEY;
-  } catch {
-    return true;
-  }
+function isLatestUpdateInBadgeWindow() {
+  const latestDate = parseUpdateDate(updates[0]?.date);
+  if (!latestDate) return false;
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const expiresAt = new Date(latestDate);
+  expiresAt.setDate(expiresAt.getDate() + UPDATE_BADGE_DAYS);
+
+  return today >= latestDate && today < expiresAt;
 }
 
 function openUpdateModal() {
   const modal = createUpdateModal();
   modal.classList.remove("hidden");
   document.body.classList.add("modal-open");
-  markLatestUpdateRead();
 }
 
 function closeUpdateModal() {
@@ -133,7 +136,7 @@ export function initUpdateModal() {
   const modal = createUpdateModal();
   if (!button || !modal) return;
 
-  setUnreadBadgeVisible(hasUnreadUpdate());
+  setUnreadBadgeVisible(isLatestUpdateInBadgeWindow());
 
   button.addEventListener("click", openUpdateModal);
   modal.querySelectorAll("[data-close-update-modal]").forEach((element) => {

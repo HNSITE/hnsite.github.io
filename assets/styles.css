@@ -62,3 +62,6 @@ body.modal-open{overflow:hidden}.update-news-button{display:inline-flex;align-it
 @media(max-width:760px){.alphabet-options-head{flex-direction:column}.alphabet-options-head select{width:100%}.custom-alphabet-grid{justify-content:flex-start}}
 
 .bingo-board.alphabet-board .cell-number{font-size:clamp(14px,2vw,22px);font-weight:900;color:#6d6578}.bingo-board.alphabet-board .bingo-cell.checked:not(.has-image) .cell-number{color:#6047aa}
+
+/* v24 topbar notifications */
+.admin-manage-button{display:inline-flex;align-items:center;gap:6px}.admin-pending-badge{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#d94b71;color:#fff;font-size:11px;font-weight:900;line-height:1}.admin-pending-badge.hidden{display:none!important}

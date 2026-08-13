@@ -16,7 +16,7 @@ import {
   getDownloadURL,
   ref as storageRef
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
-import { initUserManagementModal } from "./admin-modal.js?v=17";
+import { initUserManagementModal } from "./admin-modal.js?v=24";
 import { showConfirm, showNotice } from "./ui-dialog.js?v=14";
 
 // 빙고방 ID는 URL에 노출하지 않고 현재 사용자의 참가정보에서 확인합니다.
