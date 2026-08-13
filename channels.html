@@ -23,7 +23,7 @@
 
   <link
     rel="stylesheet"
-    href="./assets/styles.css?v=29"
+    href="./assets/styles.css?v=30"
   />
 </head>
 
@@ -43,27 +43,32 @@
       aria-label="사용자 메뉴"
     >
 
-<button
-  id="openCreateChannelButton"
-  class="channel-create-top-button hidden"
-  type="button"
->
-  <span class="channel-create-plus">＋</span>
-  <span>채널 생성</span>
-</button>
-<button
-  id="openChannelRequestsButton"
-  class="channel-request-admin-button hidden"
-  type="button"
->
-  채널 신청
-  <span
-    id="channelRequestBadge"
-    class="channel-request-badge hidden"
-  >
-    0
-  </span>
-</button>
+      <!-- 개발자 전용 채널 생성 -->
+      <button
+        id="openCreateChannelButton"
+        class="channel-create-top-button hidden"
+        type="button"
+      >
+        <span class="channel-create-plus">＋</span>
+        <span>채널 생성</span>
+      </button>
+
+      <!-- 개발자 전용 채널 생성 신청 알림 -->
+      <button
+        id="openChannelRequestsButton"
+        class="channel-request-admin-button hidden"
+        type="button"
+      >
+        채널 신청
+
+        <span
+          id="channelRequestBadge"
+          class="channel-request-badge hidden"
+        >
+          0
+        </span>
+      </button>
+
       <span
         id="userEmail"
         class="topbar-email"
@@ -115,38 +120,59 @@
           <h1>
             사용할 채널을 선택하세요
           </h1>
+
         </div>
 
       </section>
 
-<div class="channel-toolbar">
 
-  <div class="channel-search-wrap">
-    <input
-      id="channelSearch"
-      class="channel-search-input"
-      type="search"
-      placeholder="채널 이름 검색"
-      autocomplete="off"
-      aria-label="채널 검색"
-    />
-  </div>
+      <!-- 검색 + 일반 사용자 채널 생성 신청 -->
+      <div class="channel-toolbar">
 
-  <button
-    id="requestChannelCreationButton"
-    class="channel-request-button hidden"
-    type="button"
-  >
-    채널 생성 신청하기
-  </button>
+        <div class="channel-search-wrap">
 
-</div>
+          <input
+            id="channelSearch"
+            class="channel-search-input"
+            type="search"
+            placeholder="채널 이름 검색"
+            autocomplete="off"
+            aria-label="채널 검색"
+          />
+
+        </div>
+
+
+        <button
+          id="requestChannelCreationButton"
+          class="channel-request-button hidden"
+          type="button"
+        >
+          채널 생성 신청하기
+        </button>
+
+      </div>
+
+
+      <p
+        id="channelMessage"
+        class="message"
+      ></p>
+
+
+      <section
+        id="channelList"
+        class="channel-grid"
+      ></section>
+
+    </div>
+
   </main>
 
 
-  <!-- ================================
+  <!-- =====================================
        개발자 채널 생성 팝업
-  ================================= -->
+  ====================================== -->
 
   <div
     id="createChannelModal"
@@ -205,6 +231,7 @@
       >
 
         <label>
+
           채널 이름
 
           <input
@@ -214,10 +241,12 @@
             placeholder="예: 추랑"
             required
           />
+
         </label>
 
 
         <label>
+
           채널 소유자
 
           <select
@@ -250,6 +279,7 @@
             취소
           </button>
 
+
           <button
             id="createChannelButton"
             type="submit"
@@ -265,71 +295,94 @@
 
   </div>
 
-<div
-  id="channelRequestsModal"
-  class="admin-modal hidden"
->
+
+  <!-- =====================================
+       개발자 채널 생성 신청 목록 팝업
+  ====================================== -->
+
   <div
-    class="admin-modal-backdrop"
-    data-close-channel-requests
-  ></div>
-
-  <section
-    class="admin-modal-dialog channel-request-modal-dialog"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="channelRequestsTitle"
+    id="channelRequestsModal"
+    class="admin-modal hidden"
   >
-    <div class="admin-modal-header">
-      <div>
-        <p class="eyebrow">CHANNEL REQUEST</p>
-        <h2 id="channelRequestsTitle">
-          채널 생성 신청
-        </h2>
-        <p class="muted">
-          채널 생성을 요청한 사용자를 확인합니다.
-        </p>
-      </div>
-
-      <button
-        class="modal-close-button"
-        data-close-channel-requests
-        type="button"
-        aria-label="닫기"
-      >
-        ×
-      </button>
-    </div>
-
-    <p
-      id="channelRequestsMessage"
-      class="message admin-modal-message"
-    ></p>
 
     <div
-      id="channelRequestsList"
-      class="channel-request-list"
+      class="admin-modal-backdrop"
+      data-close-channel-requests
     ></div>
-  </section>
-</div>
+
+
+    <section
+      class="admin-modal-dialog channel-request-modal-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="channelRequestsTitle"
+    >
+
+      <div class="admin-modal-header">
+
+        <div>
+
+          <p class="eyebrow">
+            CHANNEL REQUEST
+          </p>
+
+          <h2 id="channelRequestsTitle">
+            채널 생성 신청
+          </h2>
+
+          <p class="muted">
+            채널 생성을 요청한 사용자를 확인합니다.
+          </p>
+
+        </div>
+
+
+        <button
+          class="modal-close-button"
+          data-close-channel-requests
+          type="button"
+          aria-label="닫기"
+        >
+          ×
+        </button>
+
+      </div>
+
+
+      <p
+        id="channelRequestsMessage"
+        class="message admin-modal-message"
+      ></p>
+
+
+      <div
+        id="channelRequestsList"
+        class="channel-request-list"
+      ></div>
+
+    </section>
+
+  </div>
+
+
   <script
     type="module"
-    src="./js/channels.js?v=29"
+    src="./js/channels.js?v=30"
   ></script>
 
   <script
     type="module"
-    src="./js/update-modal.js?v=29"
+    src="./js/update-modal.js?v=30"
   ></script>
 
   <script
     type="module"
-    src="./js/network-status.js?v=29"
+    src="./js/network-status.js?v=30"
   ></script>
 
   <script
     type="module"
-    src="./js/pwa.js?v=29"
+    src="./js/pwa.js?v=30"
   ></script>
 
 </body>

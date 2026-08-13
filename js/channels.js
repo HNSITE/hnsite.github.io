@@ -4,10 +4,12 @@ import {
   storage
 } from "./firebase-config.js";
 
+
 import {
   onAuthStateChanged,
   signOut
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
+
 
 import {
   collection,
@@ -23,109 +25,155 @@ import {
   where
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
+
 import {
   getDownloadURL,
   listAll,
   ref as storageRef
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
 
+
 import {
-  channelRoleLabel,
   isDeveloper,
   loadPlatformProfile,
-  normalizeMemberStatus,
   setCurrentChannelId
 } from "./channel-context.js?v=29";
 
+
 import {
   firebaseErrorMessage
-} from "./error-messages.js?v=28";
+} from "./error-messages.js?v=29";
 
+
+/* =========================================================
+   DOM
+========================================================= */
 
 const loadingPanel =
   document.getElementById(
     "loadingPanel"
   );
 
+
 const channelContent =
   document.getElementById(
     "channelContent"
   );
+
 
 const channelList =
   document.getElementById(
     "channelList"
   );
 
+
 const channelMessage =
   document.getElementById(
     "channelMessage"
   );
+
+
+const channelSearch =
+  document.getElementById(
+    "channelSearch"
+  );
+
 
 const openCreateChannelButton =
   document.getElementById(
     "openCreateChannelButton"
   );
 
+
 const createChannelModal =
   document.getElementById(
     "createChannelModal"
   );
+
 
 const createChannelForm =
   document.getElementById(
     "createChannelForm"
   );
 
+
 const channelOwnerSelect =
   document.getElementById(
     "channelOwner"
   );
+
 
 const createChannelMessage =
   document.getElementById(
     "createChannelMessage"
   );
 
-const channelSearch =
-  document.getElementById("channelSearch");
+
 const requestChannelCreationButton =
   document.getElementById(
     "requestChannelCreationButton"
   );
+
 
 const openChannelRequestsButton =
   document.getElementById(
     "openChannelRequestsButton"
   );
 
+
 const channelRequestBadge =
   document.getElementById(
     "channelRequestBadge"
   );
+
 
 const channelRequestsModal =
   document.getElementById(
     "channelRequestsModal"
   );
 
+
 const channelRequestsList =
   document.getElementById(
     "channelRequestsList"
   );
+
 
 const channelRequestsMessage =
   document.getElementById(
     "channelRequestsMessage"
   );
 
-let channelRequestsUnsubscribe = null;
-let channelSearchTerm = "";
-let currentUser = null;
-let currentProfile = null;
-let memberships = [];
-let usersByUid = new Map();
 
+/* =========================================================
+   상태
+========================================================= */
+
+let currentUser = null;
+
+let currentProfile = null;
+
+let memberships = [];
+
+let usersByUid =
+  new Map();
+
+let channelSearchTerm = "";
+
+let channelRequestsUnsubscribe =
+  null;
+
+/*
+ * 신청 목록에서
+ * "이 사용자로 채널 생성"을 눌렀을 때 기억한다.
+ */
+let selectedChannelRequestUid =
+  null;
+
+
+/* =========================================================
+   공통
+========================================================= */
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -137,10 +185,27 @@ function escapeHtml(value) {
 }
 
 
+/*
+ * 기존 active 데이터와
+ * 새 approved 데이터를 임시 호환.
+ */
+function normalizeMemberStatus(status) {
+  if (status === "active") {
+    return "approved";
+  }
+
+  return status || "pending";
+}
+
+
 function setMessage(
   text,
   success = false
 ) {
+  if (!channelMessage) {
+    return;
+  }
+
   channelMessage.textContent =
     text;
 
@@ -155,6 +220,10 @@ function setCreateMessage(
   text,
   success = false
 ) {
+  if (!createChannelMessage) {
+    return;
+  }
+
   createChannelMessage.textContent =
     text;
 
@@ -165,28 +234,57 @@ function setCreateMessage(
 }
 
 
-/* =========================================
-   개발자 채널 생성 팝업
-========================================= */
+/* =========================================================
+   채널 생성 팝업
+========================================================= */
 
-function openCreateChannelModal() {
-  if (!isDeveloper(currentProfile)) {
+function openCreateChannelModal(
+  ownerUid = ""
+) {
+  if (
+    !isDeveloper(
+      currentProfile
+    )
+  ) {
     return;
   }
 
+
   setCreateMessage("");
+
+
+  if (
+    ownerUid &&
+    [...channelOwnerSelect.options]
+      .some(
+        (option) =>
+          option.value === ownerUid
+      )
+  ) {
+    channelOwnerSelect.value =
+      ownerUid;
+  }
+
 
   createChannelModal.classList.remove(
     "hidden"
   );
 
+
   document.body.classList.add(
     "modal-open"
   );
 
-  document
-    .getElementById("channelName")
-    ?.focus();
+
+  requestAnimationFrame(
+    () => {
+      document
+        .getElementById(
+          "channelName"
+        )
+        ?.focus();
+    }
+  );
 }
 
 
@@ -195,18 +293,29 @@ function closeCreateChannelModal() {
     "hidden"
   );
 
+
   document.body.classList.remove(
     "modal-open"
   );
 
+
   setCreateMessage("");
+
+
+  selectedChannelRequestUid =
+    null;
 }
 
 
 openCreateChannelButton
   ?.addEventListener(
     "click",
-    openCreateChannelModal
+    () => {
+      selectedChannelRequestUid =
+        null;
+
+      openCreateChannelModal();
+    }
   );
 
 
@@ -214,32 +323,19 @@ createChannelModal
   ?.querySelectorAll(
     "[data-close-create-channel]"
   )
-  .forEach((element) => {
-    element.addEventListener(
-      "click",
-      closeCreateChannelModal
-    );
-  });
-
-
-document.addEventListener(
-  "keydown",
-  (event) => {
-    if (
-      event.key === "Escape" &&
-      !createChannelModal
-        ?.classList
-        .contains("hidden")
-    ) {
-      closeCreateChannelModal();
+  .forEach(
+    (element) => {
+      element.addEventListener(
+        "click",
+        closeCreateChannelModal
+      );
     }
-  }
-);
+  );
 
 
-/* =========================================
-   기본 대표사진 랜덤 선택
-========================================= */
+/* =========================================================
+   기본 채널 대표사진
+========================================================= */
 
 async function getRandomChannelPhoto() {
   const folderRef =
@@ -248,8 +344,12 @@ async function getRandomChannelPhoto() {
       "channel-defaults"
     );
 
+
   const result =
-    await listAll(folderRef);
+    await listAll(
+      folderRef
+    );
+
 
   const images =
     result.items.filter(
@@ -259,34 +359,40 @@ async function getRandomChannelPhoto() {
         )
     );
 
+
   if (!images.length) {
     return "";
   }
 
-  const randomItem =
-    images[
-      Math.floor(
-        Math.random() *
-        images.length
-      )
-    ];
+
+  const randomIndex =
+    Math.floor(
+      Math.random() *
+      images.length
+    );
+
 
   return await getDownloadURL(
-    randomItem
+    images[randomIndex]
   );
 }
 
 
-/* =========================================
-   개발자용 전체 사용자 불러오기
-========================================= */
+/* =========================================================
+   개발자용 사용자 목록
+========================================================= */
 
 async function loadUsersForDeveloper() {
-  if (!isDeveloper(currentProfile)) {
+  if (
+    !isDeveloper(
+      currentProfile
+    )
+  ) {
     return;
   }
 
-  const snap =
+
+  const snapshot =
     await getDocs(
       collection(
         db,
@@ -294,14 +400,17 @@ async function loadUsersForDeveloper() {
       )
     );
 
-  const users =
-    snap.docs
-      .map((item) => ({
-        uid:
-          item.id,
 
-        ...item.data()
-      }))
+  const users =
+    snapshot.docs
+      .map(
+        (item) => ({
+          uid:
+            item.id,
+
+          ...item.data()
+        })
+      )
       .filter(
         (user) =>
           !isDeveloper(user)
@@ -320,6 +429,7 @@ async function loadUsersForDeveloper() {
           )
       );
 
+
   usersByUid =
     new Map(
       users.map(
@@ -331,12 +441,26 @@ async function loadUsersForDeveloper() {
     );
 
 
+  if (!users.length) {
+    channelOwnerSelect.innerHTML =
+      `
+        <option value="">
+          선택 가능한 사용자가 없습니다.
+        </option>
+      `;
+
+    return;
+  }
+
+
   channelOwnerSelect.innerHTML =
     users
       .map(
         (user) => `
           <option
-            value="${escapeHtml(user.uid)}"
+            value="${escapeHtml(
+              user.uid
+            )}"
           >
             ${escapeHtml(
               user.name ||
@@ -354,21 +478,24 @@ async function loadUsersForDeveloper() {
 }
 
 
-/* =========================================
-   채널 목록
-========================================= */
+/* =========================================================
+   채널 목록 불러오기
+========================================================= */
 
 async function loadChannels() {
 
   /*
-   * developer
+   * 개발자
    *
-   * members 문서가 없어도
    * 모든 활성 채널 표시
    */
-  if (isDeveloper(currentProfile)) {
+  if (
+    isDeveloper(
+      currentProfile
+    )
+  ) {
 
-    const snap =
+    const snapshot =
       await getDocs(
         collection(
           db,
@@ -376,22 +503,25 @@ async function loadChannels() {
         )
       );
 
+
     memberships =
-      snap.docs
-        .map((item) => ({
-          role:
-            "developer",
+      snapshot.docs
+        .map(
+          (item) => ({
+            role:
+              "developer",
 
-          status:
-            "approved",
+            status:
+              "approved",
 
-          channel: {
-            id:
-              item.id,
+            channel: {
+              id:
+                item.id,
 
-            ...item.data()
-          }
-        }))
+              ...item.data()
+            }
+          })
+        )
         .filter(
           (item) =>
             item.channel.status ===
@@ -409,6 +539,7 @@ async function loadChannels() {
             )
         );
 
+
     return;
   }
 
@@ -416,9 +547,10 @@ async function loadChannels() {
   /*
    * 일반 사용자
    *
-   * 자신에게 등록된 채널 membership 목록 확인
+   * users/{uid}/memberships
+   * 기준으로 채널 목록 조회
    */
-  const membershipSnap =
+  const membershipSnapshot =
     await getDocs(
       collection(
         db,
@@ -429,8 +561,8 @@ async function loadChannels() {
     );
 
 
-  const raw =
-    membershipSnap.docs.map(
+  const rawMemberships =
+    membershipSnapshot.docs.map(
       (item) => ({
         id:
           item.id,
@@ -447,12 +579,12 @@ async function loadChannels() {
 
   const results =
     await Promise.all(
-      raw.map(
+      rawMemberships.map(
         async (membership) => {
 
           try {
 
-            const channelSnap =
+            const channelSnapshot =
               await getDoc(
                 doc(
                   db,
@@ -463,7 +595,7 @@ async function loadChannels() {
 
 
             if (
-              !channelSnap.exists()
+              !channelSnapshot.exists()
             ) {
               return null;
             }
@@ -471,9 +603,9 @@ async function loadChannels() {
 
             const channel = {
               id:
-                channelSnap.id,
+                channelSnapshot.id,
 
-              ...channelSnap.data()
+              ...channelSnapshot.data()
             };
 
 
@@ -486,9 +618,10 @@ async function loadChannels() {
 
 
             /*
-             * 실제 members 문서의 최신 상태 확인
+             * 실제 members 문서가 있다면
+             * 최신 상태를 우선 사용.
              */
-            const memberSnap =
+            const memberSnapshot =
               await getDoc(
                 doc(
                   db,
@@ -501,11 +634,12 @@ async function loadChannels() {
 
 
             if (
-              memberSnap.exists()
+              memberSnapshot.exists()
             ) {
 
               const member =
-                memberSnap.data();
+                memberSnapshot.data();
+
 
               return {
                 ...membership,
@@ -519,12 +653,11 @@ async function loadChannels() {
 
                 channel
               };
-
             }
 
 
             /*
-             * mirror만 존재하는 옛 데이터
+             * 기존 mirror 데이터 호환.
              */
             return {
               ...membership,
@@ -539,8 +672,8 @@ async function loadChannels() {
               error
             );
 
-            return null;
 
+            return null;
           }
         }
       )
@@ -566,26 +699,302 @@ async function loadChannels() {
 }
 
 
-/* =========================================
-   채널 생성 신청
-========================================= */
+/* =========================================================
+   채널 검색 / 카드
+========================================================= */
+
+function renderChannels() {
+  channelList.innerHTML =
+    "";
+
+
+  const searchTerm =
+    String(
+      channelSearchTerm || ""
+    )
+      .trim()
+      .toLocaleLowerCase(
+        "ko"
+      );
+
+
+  const filteredMemberships =
+    memberships.filter(
+      (membership) => {
+
+        const channelName =
+          membership.channel?.name ||
+          membership.channelName ||
+          "";
+
+
+        return (
+          !searchTerm ||
+
+          channelName
+            .toLocaleLowerCase(
+              "ko"
+            )
+            .includes(
+              searchTerm
+            )
+        );
+      }
+    );
+
+
+  /*
+   * 연결된 채널 자체가 없음
+   */
+  if (!memberships.length) {
+
+    channelList.innerHTML = `
+      <div
+        class="panel channel-empty"
+      >
+        <strong>
+          현재 연결된 채널이 없습니다.
+        </strong>
+
+        <span>
+          채널 소유자에게 초대를 받거나
+          채널 생성을 신청해주세요.
+        </span>
+      </div>
+    `;
+
+
+    return;
+  }
+
+
+  /*
+   * 검색 결과 없음
+   */
+  if (!filteredMemberships.length) {
+
+    channelList.innerHTML = `
+      <div
+        class="panel channel-empty"
+      >
+        <strong>
+          검색 결과가 없습니다.
+        </strong>
+
+        <span>
+          다른 채널 이름으로 검색해보세요.
+        </span>
+      </div>
+    `;
+
+
+    return;
+  }
+
+
+  filteredMemberships.forEach(
+    (membership) => {
+
+      const channel =
+        membership.channel;
+
+
+      const card =
+        document.createElement(
+          "article"
+        );
+
+
+      card.className =
+        "panel channel-card";
+
+
+      card.innerHTML = `
+
+        <div class="channel-card-head">
+
+          ${
+            channel.photoURL
+              ? `
+                <img
+                  class="channel-card-image"
+                  src="${escapeHtml(
+                    channel.photoURL
+                  )}"
+                  alt="${escapeHtml(
+                    channel.name ||
+                    "채널"
+                  )} 대표 이미지"
+                />
+              `
+              : `
+                <div
+                  class="channel-card-image channel-card-image-empty"
+                >
+                  H
+                </div>
+              `
+          }
+
+
+          <div class="channel-card-info">
+
+            <h2>
+              ${escapeHtml(
+                channel.name ||
+                membership.channelName ||
+                "HNSITE 채널"
+              )}
+            </h2>
+
+          </div>
+
+        </div>
+
+
+        <div class="channel-card-actions">
+
+          <button
+            class="select-channel-button"
+            type="button"
+          >
+            이 채널 사용
+          </button>
+
+        </div>
+      `;
+
+
+      card
+        .querySelector(
+          ".select-channel-button"
+        )
+        .addEventListener(
+          "click",
+          () => {
+
+            setCurrentChannelId(
+              currentUser.uid,
+              channel.id
+            );
+
+
+            location.href =
+              "./app.html";
+          }
+        );
+
+
+      channelList.appendChild(
+        card
+      );
+    }
+  );
+}
+
+
+channelSearch
+  ?.addEventListener(
+    "input",
+    (event) => {
+
+      channelSearchTerm =
+        event.target.value ||
+        "";
+
+
+      renderChannels();
+    }
+  );
+
+
+/* =========================================================
+   일반 사용자 채널 생성 신청
+========================================================= */
+
+async function syncMyChannelRequestButton() {
+  if (
+    !currentUser ||
+    !requestChannelCreationButton ||
+    isDeveloper(
+      currentProfile
+    )
+  ) {
+    return;
+  }
+
+
+  try {
+
+    const requestSnapshot =
+      await getDoc(
+        doc(
+          db,
+          "channelCreationRequests",
+          currentUser.uid
+        )
+      );
+
+
+    const pending =
+      requestSnapshot.exists() &&
+      requestSnapshot.data().status ===
+        "pending";
+
+
+    requestChannelCreationButton.disabled =
+      pending;
+
+
+    requestChannelCreationButton.textContent =
+      pending
+        ? "채널 생성 신청 대기중"
+        : "채널 생성 신청하기";
+
+  } catch (error) {
+
+    console.error(
+      "내 채널 생성 신청 확인 실패",
+      error
+    );
+
+
+    requestChannelCreationButton.disabled =
+      false;
+
+
+    requestChannelCreationButton.textContent =
+      "채널 생성 신청하기";
+  }
+}
+
 
 async function requestChannelCreation() {
   if (
     !currentUser ||
     !currentProfile ||
-    isDeveloper(currentProfile)
+    isDeveloper(
+      currentProfile
+    )
   ) {
     return;
   }
 
+
   const button =
     requestChannelCreationButton;
 
-  button.disabled = true;
-  button.textContent = "신청 중...";
+
+  button.disabled =
+    true;
+
+
+  button.textContent =
+    "신청 중...";
+
 
   try {
+
     const requestRef =
       doc(
         db,
@@ -593,19 +1002,37 @@ async function requestChannelCreation() {
         currentUser.uid
       );
 
-    const existing =
-      await getDoc(requestRef);
+
+    const existingSnapshot =
+      await getDoc(
+        requestRef
+      );
+
 
     if (
-      existing.exists() &&
-      existing.data().status === "pending"
+      existingSnapshot.exists() &&
+      existingSnapshot.data().status ===
+        "pending"
     ) {
+
       setMessage(
         "이미 채널 생성 신청이 접수되어 있습니다."
       );
 
+
+      await syncMyChannelRequestButton();
+
+
       return;
     }
+
+
+    const existingCreatedAt =
+      existingSnapshot.exists()
+        ? existingSnapshot.data()
+            .createdAt
+        : null;
+
 
     await setDoc(
       requestRef,
@@ -620,29 +1047,41 @@ async function requestChannelCreation() {
           "사용자",
 
         requesterEmail:
-          currentUser.email || "",
+          currentUser.email ||
+          "",
 
         status:
           "pending",
 
         createdAt:
+          existingCreatedAt ||
           serverTimestamp(),
 
         updatedAt:
           serverTimestamp()
+      },
+      {
+        merge:
+          true
       }
     );
+
 
     setMessage(
       "채널 생성 신청이 완료되었습니다.",
       true
     );
 
+
+    await syncMyChannelRequestButton();
+
   } catch (error) {
+
     console.error(
       "채널 생성 신청 실패",
       error
     );
+
 
     setMessage(
       firebaseErrorMessage(
@@ -651,8 +1090,11 @@ async function requestChannelCreation() {
       )
     );
 
-  } finally {
-    button.disabled = false;
+
+    button.disabled =
+      false;
+
+
     button.textContent =
       "채널 생성 신청하기";
   }
@@ -664,144 +1106,519 @@ requestChannelCreationButton
     "click",
     requestChannelCreation
   );
-/* =========================================
-   채널 카드
-========================================= */
 
-function renderChannels() {
-  channelList.innerHTML = "";
 
-  const searchTerm =
-    (channelSearchTerm || "")
-      .trim()
-      .toLocaleLowerCase("ko");
+/* =========================================================
+   개발자 채널 생성 신청 실시간 알림
+========================================================= */
 
-  const filteredMemberships =
-    memberships.filter((membership) => {
-      const channelName =
-        membership.channel?.name ||
-        membership.channelName ||
-        "";
-
-      return (
-        !searchTerm ||
-        channelName
-          .toLocaleLowerCase("ko")
-          .includes(searchTerm)
-      );
-    });
-
-  // 애초에 가입된 채널이 하나도 없는 경우
-  if (!memberships.length) {
-    channelList.innerHTML = `
-      <div class="panel channel-empty">
-        <strong>현재 연결된 채널이 없습니다.</strong>
-        <span>채널 소유자에게 초대를 받아주세요.</span>
-      </div>
-    `;
+function setChannelRequestBadge(
+  count
+) {
+  if (
+    !channelRequestBadge
+  ) {
     return;
   }
 
-  // 채널은 있지만 검색 결과가 없는 경우
-  if (!filteredMemberships.length) {
-    channelList.innerHTML = `
-      <div class="panel channel-empty">
-        <strong>검색 결과가 없습니다.</strong>
-        <span>다른 채널 이름으로 검색해보세요.</span>
-      </div>
-    `;
-    return;
-  }
 
-  filteredMemberships.forEach((membership) => {
-    const channel = membership.channel;
+  channelRequestBadge.textContent =
+    count > 99
+      ? "99+"
+      : String(count);
 
-    const card =
-      document.createElement("article");
 
-    card.className =
-      "panel channel-card";
-
-    card.innerHTML = `
-      <div class="channel-card-head">
-
-        ${
-          channel.photoURL
-            ? `
-              <img
-                class="channel-card-image"
-                src="${escapeHtml(channel.photoURL)}"
-                alt="${escapeHtml(channel.name || "채널")} 대표 이미지"
-              />
-            `
-            : `
-              <div class="channel-card-image channel-card-image-empty">
-                H
-              </div>
-            `
-        }
-
-        <div class="channel-card-info">
-          <h2>
-            ${escapeHtml(
-              channel.name ||
-              membership.channelName ||
-              "HNSITE 채널"
-            )}
-          </h2>
-        </div>
-
-      </div>
-
-      <div class="channel-card-actions">
-        <button
-          class="select-channel-button"
-          type="button"
-        >
-          이 채널 사용
-        </button>
-      </div>
-    `;
-
-    card
-      .querySelector(".select-channel-button")
-      .addEventListener("click", () => {
-        setCurrentChannelId(
-          currentUser.uid,
-          channel.id
-        );
-
-        location.href =
-          "./app.html";
-      });
-
-    channelList.appendChild(card);
-  });
+  channelRequestBadge.classList.toggle(
+    "hidden",
+    count === 0
+  );
 }
 
 
-/* =========================================
+function startChannelRequestWatcher() {
+  if (
+    !isDeveloper(
+      currentProfile
+    ) ||
+    channelRequestsUnsubscribe
+  ) {
+    return;
+  }
+
+
+  const requestsQuery =
+    query(
+      collection(
+        db,
+        "channelCreationRequests"
+      ),
+      where(
+        "status",
+        "==",
+        "pending"
+      )
+    );
+
+
+  channelRequestsUnsubscribe =
+    onSnapshot(
+      requestsQuery,
+
+      (snapshot) => {
+
+        setChannelRequestBadge(
+          snapshot.size
+        );
+
+
+        openChannelRequestsButton
+          ?.classList
+          .remove(
+            "hidden"
+          );
+
+
+        /*
+         * 신청 목록 팝업이 열린 상태라면
+         * 실시간으로 목록도 갱신.
+         */
+        if (
+          channelRequestsModal &&
+          !channelRequestsModal
+            .classList
+            .contains(
+              "hidden"
+            )
+        ) {
+          renderChannelRequests(
+            snapshot.docs.map(
+              (item) => ({
+                id:
+                  item.id,
+
+                ...item.data()
+              })
+            )
+          );
+        }
+      },
+
+      (error) => {
+
+        console.error(
+          "채널 신청 실시간 조회 실패",
+          error
+        );
+      }
+    );
+}
+
+
+/* =========================================================
+   개발자 채널 생성 신청 목록
+========================================================= */
+
+function formatRequestDate(
+  value
+) {
+  const date =
+    value?.toDate?.();
+
+
+  if (!date) {
+    return "-";
+  }
+
+
+  return new Intl.DateTimeFormat(
+    "ko-KR",
+    {
+      year:
+        "numeric",
+
+      month:
+        "2-digit",
+
+      day:
+        "2-digit",
+
+      hour:
+        "2-digit",
+
+      minute:
+        "2-digit",
+
+      hour12:
+        false
+    }
+  ).format(
+    date
+  );
+}
+
+
+function openChannelRequestsModal() {
+  if (
+    !isDeveloper(
+      currentProfile
+    )
+  ) {
+    return;
+  }
+
+
+  channelRequestsModal.classList.remove(
+    "hidden"
+  );
+
+
+  document.body.classList.add(
+    "modal-open"
+  );
+
+
+  loadChannelRequests();
+}
+
+
+function closeChannelRequestsModal() {
+  channelRequestsModal.classList.add(
+    "hidden"
+  );
+
+
+  document.body.classList.remove(
+    "modal-open"
+  );
+}
+
+
+async function loadChannelRequests() {
+  if (
+    !isDeveloper(
+      currentProfile
+    )
+  ) {
+    return;
+  }
+
+
+  channelRequestsMessage.textContent =
+    "신청 목록을 불러오는 중...";
+
+
+  try {
+
+    const snapshot =
+      await getDocs(
+        query(
+          collection(
+            db,
+            "channelCreationRequests"
+          ),
+          where(
+            "status",
+            "==",
+            "pending"
+          )
+        )
+      );
+
+
+    const requests =
+      snapshot.docs.map(
+        (item) => ({
+          id:
+            item.id,
+
+          ...item.data()
+        })
+      );
+
+
+    renderChannelRequests(
+      requests
+    );
+
+
+    channelRequestsMessage.textContent =
+      "";
+
+  } catch (error) {
+
+    console.error(
+      "채널 생성 신청 목록 조회 실패",
+      error
+    );
+
+
+    channelRequestsMessage.textContent =
+      firebaseErrorMessage(
+        error,
+        "채널 생성 신청을 불러오지 못했습니다."
+      );
+  }
+}
+
+
+function renderChannelRequests(
+  requests
+) {
+  const sorted =
+    [...requests].sort(
+      (a, b) =>
+        (
+          b.updatedAt
+            ?.toMillis?.() ||
+          b.createdAt
+            ?.toMillis?.() ||
+          0
+        ) -
+        (
+          a.updatedAt
+            ?.toMillis?.() ||
+          a.createdAt
+            ?.toMillis?.() ||
+          0
+        )
+    );
+
+
+  channelRequestsList.innerHTML =
+    "";
+
+
+  if (!sorted.length) {
+
+    channelRequestsList.innerHTML = `
+      <div class="channel-request-empty">
+        현재 대기 중인 채널 생성 신청이 없습니다.
+      </div>
+    `;
+
+
+    return;
+  }
+
+
+  sorted.forEach(
+    (request) => {
+
+      const item =
+        document.createElement(
+          "article"
+        );
+
+
+      item.className =
+        "channel-request-item";
+
+
+      item.innerHTML = `
+
+        <div class="channel-request-info">
+
+          <strong>
+            ${escapeHtml(
+              request.requesterName ||
+              request.requesterEmail ||
+              "사용자"
+            )}
+          </strong>
+
+
+          <span>
+            ${escapeHtml(
+              request.requesterEmail ||
+              ""
+            )}
+          </span>
+
+
+          <small>
+            신청
+            ${escapeHtml(
+              formatRequestDate(
+                request.updatedAt ||
+                request.createdAt
+              )
+            )}
+          </small>
+
+        </div>
+
+
+        <div class="channel-request-actions">
+
+          <button
+            class="secondary create-for-request-button"
+            type="button"
+          >
+            이 사용자로 채널 생성
+          </button>
+
+
+          <button
+            class="secondary complete-request-button"
+            type="button"
+          >
+            처리 완료
+          </button>
+
+        </div>
+      `;
+
+
+      item
+        .querySelector(
+          ".create-for-request-button"
+        )
+        .addEventListener(
+          "click",
+          () => {
+
+            const ownerExists =
+              [...channelOwnerSelect.options]
+                .some(
+                  (option) =>
+                    option.value ===
+                    request.requesterUid
+                );
+
+
+            if (!ownerExists) {
+
+              channelRequestsMessage.textContent =
+                "신청한 사용자를 채널 소유자 목록에서 찾을 수 없습니다.";
+
+
+              return;
+            }
+
+
+            selectedChannelRequestUid =
+              request.requesterUid;
+
+
+            channelOwnerSelect.value =
+              request.requesterUid;
+
+
+            closeChannelRequestsModal();
+
+
+            openCreateChannelModal(
+              request.requesterUid
+            );
+          }
+        );
+
+
+      item
+        .querySelector(
+          ".complete-request-button"
+        )
+        .addEventListener(
+          "click",
+          async () => {
+
+            await completeChannelRequest(
+              request.id
+            );
+          }
+        );
+
+
+      channelRequestsList.appendChild(
+        item
+      );
+    }
+  );
+}
+
+
+async function completeChannelRequest(
+  requestId
+) {
+  try {
+
+    await deleteDoc(
+      doc(
+        db,
+        "channelCreationRequests",
+        requestId
+      )
+    );
+
+
+    await loadChannelRequests();
+
+  } catch (error) {
+
+    console.error(
+      "채널 생성 신청 처리 실패",
+      error
+    );
+
+
+    channelRequestsMessage.textContent =
+      firebaseErrorMessage(
+        error,
+        "신청 처리에 실패했습니다."
+      );
+  }
+}
+
+
+openChannelRequestsButton
+  ?.addEventListener(
+    "click",
+    openChannelRequestsModal
+  );
+
+
+channelRequestsModal
+  ?.querySelectorAll(
+    "[data-close-channel-requests]"
+  )
+  .forEach(
+    (element) => {
+
+      element.addEventListener(
+        "click",
+        closeChannelRequestsModal
+      );
+    }
+  );
+
+
+/* =========================================================
    채널 생성
-========================================= */
+========================================================= */
 
 async function createChannel(
   event
 ) {
-
   event.preventDefault();
 
 
-  if (!isDeveloper(currentProfile)) {
+  if (
+    !isDeveloper(
+      currentProfile
+    )
+  ) {
     return;
   }
 
 
+  const channelNameInput =
+    document.getElementById(
+      "channelName"
+    );
+
+
   const name =
-    document
-      .getElementById(
-        "channelName"
-      )
-      .value
+    channelNameInput.value
       .trim();
 
 
@@ -810,18 +1627,25 @@ async function createChannel(
 
 
   if (!name) {
+
     setCreateMessage(
       "채널 이름을 입력해주세요."
     );
+
+
+    channelNameInput.focus();
+
 
     return;
   }
 
 
   if (!ownerUid) {
+
     setCreateMessage(
       "채널 소유자를 선택해주세요."
     );
+
 
     return;
   }
@@ -834,9 +1658,11 @@ async function createChannel(
 
 
   if (!owner) {
+
     setCreateMessage(
       "선택한 사용자 정보를 찾을 수 없습니다."
     );
+
 
     return;
   }
@@ -851,6 +1677,7 @@ async function createChannel(
   button.disabled =
     true;
 
+
   button.textContent =
     "생성 중...";
 
@@ -860,10 +1687,14 @@ async function createChannel(
     let photoURL =
       "";
 
+
     try {
+
       photoURL =
         await getRandomChannelPhoto();
+
     } catch (error) {
+
       console.warn(
         "기본 대표사진 선택 실패",
         error
@@ -904,10 +1735,12 @@ async function createChannel(
       db,
       async (transaction) => {
 
+        /*
+         * 채널
+         */
         transaction.set(
           channelRef,
           {
-
             name,
 
             photoURL,
@@ -955,13 +1788,11 @@ async function createChannel(
 
 
         /*
-         * 채널 소유자는
-         * 자동 승인
+         * 소유자
          */
         transaction.set(
           memberRef,
           {
-
             uid:
               ownerUid,
 
@@ -1001,7 +1832,6 @@ async function createChannel(
         transaction.set(
           mirrorRef,
           {
-
             channelId:
               channelRef.id,
 
@@ -1021,12 +1851,46 @@ async function createChannel(
               serverTimestamp()
           }
         );
-
       }
     );
 
 
+    /*
+     * 신청 목록에서 바로 생성한 경우
+     * 성공 후 신청도 자동 제거.
+     */
+    if (
+      selectedChannelRequestUid &&
+      selectedChannelRequestUid ===
+        ownerUid
+    ) {
+
+      try {
+
+        await deleteDoc(
+          doc(
+            db,
+            "channelCreationRequests",
+            selectedChannelRequestUid
+          )
+        );
+
+      } catch (error) {
+
+        console.warn(
+          "채널 신청 자동 처리 실패",
+          error
+        );
+      }
+    }
+
+
+    selectedChannelRequestUid =
+      null;
+
+
     createChannelForm.reset();
+
 
     closeCreateChannelModal();
 
@@ -1039,11 +1903,16 @@ async function createChannel(
 
     await loadChannels();
 
+
     renderChannels();
 
   } catch (error) {
 
-    console.error(error);
+    console.error(
+      "채널 생성 실패",
+      error
+    );
+
 
     setCreateMessage(
       firebaseErrorMessage(
@@ -1057,9 +1926,9 @@ async function createChannel(
     button.disabled =
       false;
 
+
     button.textContent =
       "채널 생성";
-
   }
 }
 
@@ -1071,9 +1940,55 @@ createChannelForm
   );
 
 
-/* =========================================
+/* =========================================================
+   ESC 팝업 닫기
+========================================================= */
+
+document.addEventListener(
+  "keydown",
+  (event) => {
+
+    if (
+      event.key !==
+      "Escape"
+    ) {
+      return;
+    }
+
+
+    if (
+      createChannelModal &&
+      !createChannelModal
+        .classList
+        .contains(
+          "hidden"
+        )
+    ) {
+
+      closeCreateChannelModal();
+
+      return;
+    }
+
+
+    if (
+      channelRequestsModal &&
+      !channelRequestsModal
+        .classList
+        .contains(
+          "hidden"
+        )
+    ) {
+
+      closeChannelRequestsModal();
+    }
+  }
+);
+
+
+/* =========================================================
    로그아웃
-========================================= */
+========================================================= */
 
 document
   .getElementById(
@@ -1083,19 +1998,32 @@ document
     "click",
     async () => {
 
-      await signOut(auth);
+      if (
+        channelRequestsUnsubscribe
+      ) {
+
+        channelRequestsUnsubscribe();
+
+        channelRequestsUnsubscribe =
+          null;
+      }
+
+
+      await signOut(
+        auth
+      );
+
 
       location.replace(
         "./index.html"
       );
-
     }
   );
 
 
-/* =========================================
+/* =========================================================
    초기화
-========================================= */
+========================================================= */
 
 onAuthStateChanged(
   auth,
@@ -1106,6 +2034,7 @@ onAuthStateChanged(
       location.replace(
         "./index.html"
       );
+
 
       return;
     }
@@ -1149,34 +2078,50 @@ onAuthStateChanged(
 
 
       /*
-       * developer에게만
-       * 채널 생성 버튼 표시
+       * 개발자 버튼
        */
       openCreateChannelButton
-        .classList
+        ?.classList
         .toggle(
           "hidden",
           !developer
         );
 
 
-if (developer) {
-  await loadUsersForDeveloper();
+      openChannelRequestsButton
+        ?.classList
+        .toggle(
+          "hidden",
+          !developer
+        );
 
-  startChannelRequestWatcher();
 
-  openChannelRequestsButton
-    .classList
-    .remove("hidden");
+      /*
+       * 일반 사용자 신청 버튼
+       */
+      requestChannelCreationButton
+        ?.classList
+        .toggle(
+          "hidden",
+          developer
+        );
 
-} else {
-  requestChannelCreationButton
-    .classList
-    .remove("hidden");
-}
+
+      if (developer) {
+
+        await loadUsersForDeveloper();
+
+
+        startChannelRequestWatcher();
+
+      } else {
+
+        await syncMyChannelRequestButton();
+      }
 
 
       await loadChannels();
+
 
       renderChannels();
 
@@ -1185,13 +2130,17 @@ if (developer) {
         "hidden"
       );
 
+
       channelContent.classList.remove(
         "hidden"
       );
 
     } catch (error) {
 
-      console.error(error);
+      console.error(
+        "채널 페이지 초기화 실패",
+        error
+      );
 
 
       loadingPanel.innerHTML = `
@@ -1227,350 +2176,16 @@ if (developer) {
           "click",
           async () => {
 
-            await signOut(auth);
+            await signOut(
+              auth
+            );
+
 
             location.replace(
               "./index.html"
             );
-
           }
         );
     }
-  }
-);
-
-
-
-  function startChannelRequestWatcher() {
-  if (
-    !isDeveloper(currentProfile) ||
-    channelRequestsUnsubscribe
-  ) {
-    return;
-  }
-
-  const requestsQuery =
-    query(
-      collection(
-        db,
-        "channelCreationRequests"
-      ),
-      where(
-        "status",
-        "==",
-        "pending"
-      )
-    );
-
-  channelRequestsUnsubscribe =
-    onSnapshot(
-      requestsQuery,
-
-      (snapshot) => {
-        const count =
-          snapshot.size;
-
-        channelRequestBadge.textContent =
-          count > 99
-            ? "99+"
-            : String(count);
-
-        channelRequestBadge.classList.toggle(
-          "hidden",
-          count === 0
-        );
-
-        openChannelRequestsButton.classList.remove(
-          "hidden"
-        );
-      },
-
-      (error) => {
-        console.error(
-          "채널 신청 실시간 조회 실패",
-          error
-        );
-      }
-    );
-}
-
-function formatRequestDate(value) {
-  const date =
-    value?.toDate?.();
-
-  if (!date) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat(
-    "ko-KR",
-    {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false
-    }
-  ).format(date);
-}
-
-
-async function openChannelRequestsModal() {
-  if (!isDeveloper(currentProfile)) {
-    return;
-  }
-
-  channelRequestsModal.classList.remove(
-    "hidden"
-  );
-
-  document.body.classList.add(
-    "modal-open"
-  );
-
-  channelRequestsMessage.textContent =
-    "신청 목록을 불러오는 중...";
-
-  try {
-    await loadChannelRequests();
-
-    channelRequestsMessage.textContent =
-      "";
-
-  } catch (error) {
-    console.error(error);
-
-    channelRequestsMessage.textContent =
-      firebaseErrorMessage(
-        error,
-        "채널 생성 신청을 불러오지 못했습니다."
-      );
-  }
-}
-
-
-function closeChannelRequestsModal() {
-  channelRequestsModal.classList.add(
-    "hidden"
-  );
-
-  document.body.classList.remove(
-    "modal-open"
-  );
-}
-
-
-async function loadChannelRequests() {
-  const snap =
-    await getDocs(
-      query(
-        collection(
-          db,
-          "channelCreationRequests"
-        ),
-        where(
-          "status",
-          "==",
-          "pending"
-        )
-      )
-    );
-
-  const requests =
-    snap.docs
-      .map((item) => ({
-        id:
-          item.id,
-
-        ...item.data()
-      }))
-      .sort(
-        (a, b) =>
-          (
-            b.updatedAt?.toMillis?.() ||
-            0
-          ) -
-          (
-            a.updatedAt?.toMillis?.() ||
-            0
-          )
-      );
-
-  channelRequestsList.innerHTML =
-    "";
-
-  if (!requests.length) {
-    channelRequestsList.innerHTML = `
-      <div class="channel-request-empty">
-        현재 대기 중인 채널 생성 신청이 없습니다.
-      </div>
-    `;
-
-    return;
-  }
-
-  requests.forEach(
-    (request) => {
-      const item =
-        document.createElement(
-          "article"
-        );
-
-      item.className =
-        "channel-request-item";
-
-      item.innerHTML = `
-        <div class="channel-request-info">
-
-          <strong>
-            ${escapeHtml(
-              request.requesterName ||
-              request.requesterEmail ||
-              "사용자"
-            )}
-          </strong>
-
-          <span>
-            ${escapeHtml(
-              request.requesterEmail ||
-              ""
-            )}
-          </span>
-
-          <small>
-            신청 ${escapeHtml(
-              formatRequestDate(
-                request.updatedAt ||
-                request.createdAt
-              )
-            )}
-          </small>
-
-        </div>
-
-        <div class="channel-request-actions">
-
-          <button
-            class="secondary create-for-request-button"
-            type="button"
-          >
-            이 사용자로 채널 생성
-          </button>
-
-          <button
-            class="secondary complete-request-button"
-            type="button"
-          >
-            처리 완료
-          </button>
-
-        </div>
-      `;
-
-      item
-        .querySelector(
-          ".create-for-request-button"
-        )
-        .addEventListener(
-          "click",
-          () => {
-            const ownerExists =
-              [...channelOwnerSelect.options]
-                .some(
-                  (option) =>
-                    option.value ===
-                    request.requesterUid
-                );
-
-            if (ownerExists) {
-              channelOwnerSelect.value =
-                request.requesterUid;
-            }
-
-            closeChannelRequestsModal();
-
-            openCreateChannelModal();
-
-            document
-              .getElementById(
-                "channelName"
-              )
-              ?.focus();
-          }
-        );
-
-      item
-        .querySelector(
-          ".complete-request-button"
-        )
-        .addEventListener(
-          "click",
-          async () => {
-            await completeChannelRequest(
-              request
-            );
-          }
-        );
-
-      channelRequestsList.appendChild(
-        item
-      );
-    }
-  );
-}
-
-async function completeChannelRequest(
-  request
-) {
-  try {
-    await deleteDoc(
-      doc(
-        db,
-        "channelCreationRequests",
-        request.id
-      )
-    );
-
-    await loadChannelRequests();
-
-  } catch (error) {
-    console.error(error);
-
-    channelRequestsMessage.textContent =
-      firebaseErrorMessage(
-        error,
-        "신청 처리에 실패했습니다."
-      );
-  }
-}
-
-openChannelRequestsButton
-  ?.addEventListener(
-    "click",
-    openChannelRequestsModal
-  );
-
-
-channelRequestsModal
-  ?.querySelectorAll(
-    "[data-close-channel-requests]"
-  )
-  .forEach(
-    (element) => {
-      element.addEventListener(
-        "click",
-        closeChannelRequestsModal
-      );
-    }
-  );
-
-  channelSearch?.addEventListener(
-  "input",
-  (event) => {
-    channelSearchTerm =
-      event.target.value || "";
-
-    renderChannels();
   }
 );
