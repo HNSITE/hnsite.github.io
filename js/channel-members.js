@@ -1,17 +1,19 @@
 import { db } from "./firebase-config.js";
 import {
+  arrayRemove,
   collection,
   doc,
+  getDocs,
   onSnapshot,
   serverTimestamp,
   writeBatch
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
-import { firebaseErrorMessage } from "./error-messages.js?v=34";
+import { firebaseErrorMessage } from "./error-messages.js";
+import { showConfirm } from "./ui-dialog.js";
 import {
-  channelRoleLabel,
   isChannelManager,
   normalizeMemberStatus
-} from "./channel-context.js?v=34";
+} from "./channel-context.js";
 
 const PAGE_SIZE = 10;
 
@@ -71,7 +73,6 @@ function ensureModal() {
         <div>
           <p class="eyebrow">CHANNEL MEMBER</p>
           <h2 id="channelMemberApprovalTitle">채널 사용자 관리</h2>
-          <p id="channelMemberApprovalChannelName" class="muted"></p>
         </div>
         <button class="modal-close-button" data-close-channel-approval type="button" aria-label="닫기">×</button>
       </div>
@@ -156,7 +157,6 @@ function openModal() {
   activeTab = "pending";
   page = 1;
   renderTabs();
-  document.getElementById("channelMemberApprovalChannelName").textContent = `${currentContext.channel?.name || "현재 채널"}의 사용자만 표시됩니다.`;
   document.getElementById("channelMemberApprovalMessage").textContent = "";
   modal.classList.remove("hidden");
   document.body.classList.add("modal-open");
@@ -210,15 +210,54 @@ function renderPendingItem(member) {
 function renderApprovedItem(member) {
   const item = document.createElement("article");
   item.className = "channel-request-item channel-approved-member-item";
+
+  const owner = member.role === "owner";
   item.innerHTML = `
     <div class="channel-request-info">
       <strong>${escapeHtml(member.name || member.email || "사용자")}</strong>
-      <span>${escapeHtml(member.email || "")}</span>
-      <small>${escapeHtml(channelRoleLabel(member.role))} · 빙고 ${escapeHtml(member.bingoAccess || "none")}</small>
     </div>
     <div class="channel-request-actions">
-      <span class="channel-member-status-pill">사용 중</span>
+      <span class="channel-member-status-pill">${owner ? "소유자" : "사용 중"}</span>
+      ${owner ? "" : '<button class="danger-outline kick-channel-member-button" type="button">추방</button>'}
     </div>`;
+
+  const kickButton = item.querySelector(".kick-channel-member-button");
+  if (kickButton) {
+    kickButton.addEventListener("click", async () => {
+      const name = member.name || member.email || "선택한 사용자";
+      const confirmed = await showConfirm(
+        `${name}님을 이 채널에서 추방할까요?`,
+        {
+          title: "채널 사용자 추방",
+          confirmText: "추방",
+          danger: true
+        }
+      );
+
+      if (!confirmed) return;
+
+      kickButton.disabled = true;
+      kickButton.textContent = "추방 중...";
+
+      try {
+        await kickMember(member);
+        const message = document.getElementById("channelMemberApprovalMessage");
+        message.textContent = `${name}님을 채널에서 추방했습니다.`;
+        message.classList.add("success");
+      } catch (error) {
+        console.error("채널 사용자 추방 실패", error);
+        const message = document.getElementById("channelMemberApprovalMessage");
+        message.textContent = firebaseErrorMessage(
+          error,
+          error?.message || "채널 사용자 추방에 실패했습니다."
+        );
+        message.classList.remove("success");
+        kickButton.disabled = false;
+        kickButton.textContent = "추방";
+      }
+    });
+  }
+
   return item;
 }
 
@@ -257,6 +296,62 @@ function render() {
   document.getElementById("channelMemberApprovalNext").disabled = page >= totalPages;
 }
 
+
+async function kickMember(member) {
+  if (member.role === "owner") {
+    throw new Error("채널 소유자는 추방할 수 없습니다.");
+  }
+
+  const channelId = currentContext.channelId;
+  const actorUid = currentContext.profile?.uid || "";
+  const roomsSnapshot = await getDocs(
+    collection(db, "channels", channelId, "bingoRooms")
+  );
+
+  const memberRef = doc(db, "channels", channelId, "members", member.uid);
+  const mirrorRef = doc(db, "users", member.uid, "memberships", channelId);
+  const batch = writeBatch(db);
+
+  roomsSnapshot.docs.forEach((roomDoc) => {
+    const room = roomDoc.data();
+    const updates = {};
+
+    if (room.ownerUid === member.uid && room.status !== "closed") {
+      updates.status = "closed";
+      updates.closedAt = serverTimestamp();
+      updates.closedByUid = actorUid;
+      updates.updatedAt = serverTimestamp();
+
+      if (room.ownerSlot) {
+        batch.delete(
+          doc(
+            db,
+            "channels",
+            channelId,
+            "bingoRoomOwners",
+            member.uid,
+            "slots",
+            String(room.ownerSlot)
+          )
+        );
+      }
+    }
+
+    if ((room.participantUids || []).includes(member.uid)) {
+      updates.participantUids = arrayRemove(member.uid);
+      updates.updatedAt = serverTimestamp();
+    }
+
+    if (Object.keys(updates).length) {
+      batch.update(roomDoc.ref, updates);
+    }
+  });
+
+  batch.delete(memberRef);
+  batch.delete(mirrorRef);
+  await batch.commit();
+}
+
 async function approveMember(member) {
   const channelId = currentContext.channelId;
   const memberRef = doc(db, "channels", channelId, "members", member.uid);
@@ -266,7 +361,7 @@ async function approveMember(member) {
   batch.update(memberRef, {
     status: "approved",
     bingoAccess: currentContext.channel.bingoEnabled === true ? "write" : "none",
-    killSheetAccess: "none",
+    killSheetAccess: currentContext.channel.killEnabled === true ? "write" : "none",
     joinedAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });

@@ -242,7 +242,7 @@ async function handleUser(
 
 
   location.replace(
-    `./channels.html?_fresh=${Date.now()}`
+    "./channels.html"
   );
 }
 

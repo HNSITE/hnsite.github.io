@@ -15,10 +15,10 @@ import {
   writeBatch
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 import { deleteObject, getDownloadURL, ref as storageRef } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
-import { firebaseErrorMessage } from "./error-messages.js?v=34";
-import { initChannelMemberApproval } from "./channel-members.js?v=34";
-import { initDeveloperChannelTools } from "./developer-channel-tools.js?v=34";
-import { showConfirm, showNotice } from "./ui-dialog.js?v=34";
+import { firebaseErrorMessage } from "./error-messages.js";
+import { initChannelMemberApproval } from "./channel-members.js";
+import { initDeveloperChannelTools } from "./developer-channel-tools.js";
+import { showConfirm, showNotice } from "./ui-dialog.js";
 import {
   archiveRoomStorageKey,
   currentRoomStorageKey,
@@ -28,7 +28,7 @@ import {
   loadCurrentChannelContext,
   loadPlatformProfile,
   resolvedFeatureAccess
-} from "./channel-context.js?v=34";
+} from "./channel-context.js";
 
 if (location.search) window.history.replaceState(null, "", location.pathname + location.hash);
 
@@ -530,7 +530,7 @@ let resizeTimer=null;window.addEventListener("resize",()=>{clearTimeout(resizeTi
 onAuthStateChanged(auth,async(user)=>{
   if(!user)return location.replace("./index.html");
   try{
-    currentUser=user;currentProfile=await loadPlatformProfile(user);currentContext=await loadCurrentChannelContext(user,currentProfile);await initDeveloperChannelTools(user,currentProfile);initChannelMemberApproval(currentContext);access=resolvedFeatureAccess(currentContext,"bingo");if(access==="none")throw new Error("이 채널에서 빙고를 이용할 권한이 없습니다.");
+    currentUser=user;currentProfile=await loadPlatformProfile(user);currentContext=await loadCurrentChannelContext(user,currentProfile);await initDeveloperChannelTools(user,currentProfile,currentContext);initChannelMemberApproval(currentContext);access=resolvedFeatureAccess(currentContext,"bingo");if(access==="none")throw new Error("이 채널에서 빙고를 이용할 권한이 없습니다.");
     document.getElementById("userEmail").textContent=user.email||"";document.getElementById("currentChannelName").textContent=currentContext.channel.name||"HNSITE";const roleBadge=document.getElementById("roleBadge");roleBadge.textContent=displayRole(currentContext);roleBadge.dataset.role=isDeveloper(currentProfile)?"developer":currentContext.member.role;
     await loadRoomAndBoard();await loadBoardImage();renderRoomHeader();renderBoard();if(isRoomManager()&&access==="write"&&!isClosedRoom())await loadManageUsers();loadingPanel.classList.add("hidden");roomContent.classList.remove("hidden");startRealtimeListeners();startPresence();
   }catch(error){console.error(error);if(["NO_CHANNEL","CHANNEL_NOT_FOUND","CHANNEL_INACTIVE"].includes(error.code))return location.replace("./channels.html");loadingPanel.innerHTML=`<h2>빙고방에 들어갈 수 없습니다.</h2><p>${escapeHtml(firebaseErrorMessage(error,error.message||"빙고방 정보를 불러오지 못했습니다."))}</p><a class="service-button inline-button" href="./bingo.html">빙고 목록으로 돌아가기</a>`;}

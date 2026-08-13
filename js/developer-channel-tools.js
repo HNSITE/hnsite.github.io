@@ -9,21 +9,23 @@ import {
   runTransaction,
   serverTimestamp,
   updateDoc,
-  where
+  where,
+  writeBatch
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 import {
   getDownloadURL,
   listAll,
   ref as storageRef
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
-import { isDeveloper } from "./channel-context.js?v=34";
-import { firebaseErrorMessage } from "./error-messages.js?v=34";
-import { showConfirm } from "./ui-dialog.js?v=34";
+import { isDeveloper } from "./channel-context.js";
+import { firebaseErrorMessage } from "./error-messages.js";
+import { showConfirm } from "./ui-dialog.js";
 
 const REQUEST_PAGE_SIZE = 10;
 
 let currentUser = null;
 let currentProfile = null;
+let currentContext = null;
 let ownerUsers = [];
 let ownerUsersByUid = new Map();
 let pendingRequests = [];
@@ -67,6 +69,22 @@ function ensureButtons() {
     nav.insertBefore(requestButton, email || nav.firstChild);
   }
 
+  let settingsButton = document.getElementById("globalChannelSettingsButton");
+  if (currentContext?.channelId && !settingsButton) {
+    settingsButton = document.createElement("button");
+    settingsButton.id = "globalChannelSettingsButton";
+    settingsButton.className = "topbar-link channel-feature-settings-button";
+    settingsButton.type = "button";
+    settingsButton.textContent = "채널 기능 설정";
+    const email = nav.querySelector(".topbar-email");
+    nav.insertBefore(settingsButton, email || nav.firstChild);
+  }
+
+  if (settingsButton && !settingsButton.dataset.bound) {
+    settingsButton.dataset.bound = "1";
+    settingsButton.addEventListener("click", openSettingsModal);
+  }
+
   if (!createButton.dataset.bound) {
     createButton.dataset.bound = "1";
     createButton.addEventListener("click", () => openCreateModal());
@@ -108,6 +126,20 @@ function ensureCreateModal() {
           <select id="globalChannelOwner" required></select>
           <small id="globalChannelOwnerSearchResult" class="muted"></small>
         </div>
+        <fieldset class="channel-feature-fieldset">
+          <legend>사용 기능</legend>
+          <div class="channel-feature-options">
+            <label class="channel-feature-option">
+              <input id="globalChannelFeatureBingo" type="checkbox" checked />
+              <span>빙고</span>
+            </label>
+            <label class="channel-feature-option">
+              <input id="globalChannelFeatureKill" type="checkbox" />
+              <span>킬내기</span>
+            </label>
+          </div>
+          <small class="muted">하나 이상 선택해야 하며 두 기능 모두 선택할 수 있습니다.</small>
+        </fieldset>
         <p id="globalCreateChannelMessage" class="message"></p>
         <div class="channel-modal-actions">
           <button class="secondary" data-close-global-create type="button">취소</button>
@@ -123,6 +155,138 @@ function ensureCreateModal() {
   modal.querySelector("#globalChannelOwnerSearch").addEventListener("input", () => renderOwnerOptions());
   modal.querySelector("#globalCreateChannelForm").addEventListener("submit", createChannel);
   return modal;
+}
+
+function ensureSettingsModal() {
+  let modal = document.getElementById("globalChannelSettingsModal");
+  if (modal) return modal;
+
+  modal = document.createElement("div");
+  modal.id = "globalChannelSettingsModal";
+  modal.className = "admin-modal hidden";
+  modal.innerHTML = `
+    <div class="admin-modal-backdrop" data-close-global-settings></div>
+    <section class="admin-modal-dialog channel-create-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="globalChannelSettingsTitle">
+      <div class="admin-modal-header">
+        <div>
+          <p class="eyebrow">DEVELOPER</p>
+          <h2 id="globalChannelSettingsTitle">채널 기능 설정</h2>
+          <p id="globalChannelSettingsName" class="muted"></p>
+        </div>
+        <button class="modal-close-button" data-close-global-settings type="button" aria-label="닫기">×</button>
+      </div>
+      <form id="globalChannelSettingsForm" class="channel-create-modal-form">
+        <fieldset class="channel-feature-fieldset">
+          <legend>사용 기능</legend>
+          <div class="channel-feature-options">
+            <label class="channel-feature-option">
+              <input id="globalSettingsBingo" type="checkbox" />
+              <span>빙고</span>
+            </label>
+            <label class="channel-feature-option">
+              <input id="globalSettingsKill" type="checkbox" />
+              <span>킬내기</span>
+            </label>
+          </div>
+          <small class="muted">선택한 기능만 이 채널에서 사용할 수 있습니다. 두 기능 모두 선택할 수 있습니다.</small>
+        </fieldset>
+        <p id="globalChannelSettingsMessage" class="message"></p>
+        <div class="channel-modal-actions">
+          <button class="secondary" data-close-global-settings type="button">취소</button>
+          <button id="globalChannelSettingsSubmit" type="submit">저장</button>
+        </div>
+      </form>
+    </section>`;
+
+  document.body.appendChild(modal);
+  modal.querySelectorAll("[data-close-global-settings]").forEach((element) => {
+    element.addEventListener("click", closeSettingsModal);
+  });
+  modal.querySelector("#globalChannelSettingsForm").addEventListener("submit", saveChannelSettings);
+  return modal;
+}
+
+function openSettingsModal() {
+  if (!isDeveloper(currentProfile) || !currentContext?.channelId) return;
+  const modal = ensureSettingsModal();
+  modal.querySelector("#globalChannelSettingsName").textContent = currentContext.channel?.name || "현재 채널";
+  modal.querySelector("#globalSettingsBingo").checked = currentContext.channel?.bingoEnabled === true;
+  modal.querySelector("#globalSettingsKill").checked = currentContext.channel?.killEnabled === true;
+  const message = modal.querySelector("#globalChannelSettingsMessage");
+  message.textContent = "";
+  message.classList.remove("success");
+  modal.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+}
+
+function closeSettingsModal() {
+  document.getElementById("globalChannelSettingsModal")?.classList.add("hidden");
+  document.body.classList.remove("modal-open");
+}
+
+async function saveChannelSettings(event) {
+  event.preventDefault();
+  if (!isDeveloper(currentProfile) || !currentContext?.channelId) return;
+
+  const modal = ensureSettingsModal();
+  const bingoEnabled = modal.querySelector("#globalSettingsBingo").checked;
+  const killEnabled = modal.querySelector("#globalSettingsKill").checked;
+  const message = modal.querySelector("#globalChannelSettingsMessage");
+  const submit = modal.querySelector("#globalChannelSettingsSubmit");
+
+  message.textContent = "";
+  message.classList.remove("success");
+
+  if (!bingoEnabled && !killEnabled) {
+    message.textContent = "빙고와 킬내기 중 하나 이상을 선택해주세요.";
+    return;
+  }
+
+  submit.disabled = true;
+  submit.textContent = "저장 중...";
+
+  try {
+    const membersSnapshot = await getDocs(
+      collection(db, "channels", currentContext.channelId, "members")
+    );
+
+    const batch = writeBatch(db);
+    batch.update(
+      doc(db, "channels", currentContext.channelId),
+      {
+        bingoEnabled,
+        killEnabled,
+        updatedAt: serverTimestamp()
+      }
+    );
+
+    membersSnapshot.docs.forEach((memberDoc) => {
+      const member = memberDoc.data();
+      const approved = ["approved", "active"].includes(member.status);
+      batch.update(memberDoc.ref, {
+        bingoAccess: approved && bingoEnabled ? "write" : "none",
+        killSheetAccess: approved && killEnabled ? "write" : "none",
+        updatedAt: serverTimestamp()
+      });
+    });
+
+    await batch.commit();
+
+    currentContext.channel.bingoEnabled = bingoEnabled;
+    currentContext.channel.killEnabled = killEnabled;
+    message.textContent = "채널 사용 기능을 변경했습니다.";
+    message.classList.add("success");
+
+    setTimeout(() => {
+      location.reload();
+    }, 300);
+  } catch (error) {
+    console.error("채널 기능 설정 저장 실패", error);
+    message.textContent = firebaseErrorMessage(error, "채널 기능 설정을 저장하지 못했습니다.");
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "저장";
+  }
 }
 
 function ensureRequestsModal() {
@@ -278,6 +442,8 @@ async function createChannel(event) {
   const name = nameInput.value.trim();
   const ownerUid = ownerSelect.value;
   const owner = ownerUsersByUid.get(ownerUid);
+  const bingoEnabled = modal.querySelector("#globalChannelFeatureBingo").checked;
+  const killEnabled = modal.querySelector("#globalChannelFeatureKill").checked;
 
   message.textContent = "";
   message.classList.remove("success");
@@ -289,6 +455,10 @@ async function createChannel(event) {
   }
   if (!owner) {
     message.textContent = "채널 소유자를 선택해주세요.";
+    return;
+  }
+  if (!bingoEnabled && !killEnabled) {
+    message.textContent = "빙고와 킬내기 중 하나 이상을 선택해주세요.";
     return;
   }
 
@@ -318,8 +488,8 @@ async function createChannel(event) {
         createdBy: currentUser.uid,
         status: "active",
         subscriptionStatus: "beta",
-        bingoEnabled: true,
-        killEnabled: false,
+        bingoEnabled,
+        killEnabled,
         killPlan: "none",
         maxActiveBingoRoomsPerManager: 5,
         subscriptionStartedAt: null,
@@ -334,8 +504,8 @@ async function createChannel(event) {
         email: owner.email || "",
         role: "owner",
         status: "approved",
-        bingoAccess: "write",
-        killSheetAccess: "none",
+        bingoAccess: bingoEnabled ? "write" : "none",
+        killSheetAccess: killEnabled ? "write" : "none",
         requestedAt: null,
         joinedAt: serverTimestamp(),
         updatedAt: serverTimestamp()
@@ -506,13 +676,15 @@ function startRequestWatcher() {
   );
 }
 
-export async function initDeveloperChannelTools(user, profile) {
+export async function initDeveloperChannelTools(user, profile, context = null) {
   currentUser = user;
   currentProfile = profile;
+  currentContext = context;
   if (!isDeveloper(currentProfile)) return;
   ensureButtons();
   ensureCreateModal();
   ensureRequestsModal();
+  if (currentContext?.channelId) ensureSettingsModal();
   startRequestWatcher();
   try {
     await loadOwnerUsers();

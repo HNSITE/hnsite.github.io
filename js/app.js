@@ -9,23 +9,20 @@ import {
 
 import {
   initAdminDashboard
-} from "./admin-dashboard.js?v=34";
+} from "./admin-dashboard.js";
 
 import {
   initChannelMemberApproval
-} from "./channel-members.js?v=34";
+} from "./channel-members.js";
 
 import {
   initDeveloperChannelTools
-} from "./developer-channel-tools.js?v=34";
+} from "./developer-channel-tools.js";
 
-import {
-  showNotice
-} from "./ui-dialog.js?v=34";
 
 import {
   firebaseErrorMessage
-} from "./error-messages.js?v=34";
+} from "./error-messages.js";
 
 import {
   accessLabel,
@@ -35,7 +32,7 @@ import {
   loadCurrentChannelContext,
   loadPlatformProfile,
   resolvedFeatureAccess
-} from "./channel-context.js?v=34";
+} from "./channel-context.js";
 
 
 const loadingPanel =
@@ -82,16 +79,18 @@ function applyServiceAccess(
     );
 
 
+  const enabled =
+    feature === "bingo"
+      ? context.channel.bingoEnabled === true
+      : context.channel.killEnabled === true;
+
+
   text.textContent =
-    feature === "kill" &&
-    context.channel
-      .killEnabled !== true
-
-      ? "준비중"
-
-      : accessLabel(
+    enabled
+      ? accessLabel(
           access
-        );
+        )
+      : "사용 안 함";
 
 
   card.dataset.access =
@@ -103,9 +102,9 @@ function applyServiceAccess(
   ) {
 
     button.textContent =
-      feature === "kill"
-        ? "준비중"
-        : "접근 권한 없음";
+      enabled
+        ? "접근 권한 없음"
+        : "사용 안 함";
 
 
     button.classList.add(
@@ -254,7 +253,8 @@ onAuthStateChanged(
 
       await initDeveloperChannelTools(
         user,
-        profile
+        profile,
+        context
       );
 
 
@@ -475,27 +475,3 @@ document
     }
   );
 
-
-/* =========================================================
-   킬내기
-========================================================= */
-
-document
-  .getElementById(
-    "killButton"
-  )
-  .addEventListener(
-    "click",
-    (
-      event
-    ) => {
-
-      event.preventDefault();
-
-
-      showNotice(
-        "현재 킬내기 기능을 준비하고 있습니다.",
-        "준비중입니다"
-      );
-    }
-  );

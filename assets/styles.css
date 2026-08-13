@@ -425,6 +425,54 @@ body.modal-open{overflow:hidden}.update-news-button{display:inline-flex;align-it
   font-weight:500
 }
 
+.channel-feature-fieldset{
+  display:grid;
+  gap:10px;
+  margin:0;
+  padding:16px;
+  border:1px solid #e5dff0;
+  border-radius:14px;
+  background:#fbf9ff
+}
+
+.channel-feature-fieldset legend{
+  padding:0 6px;
+  color:#51485c;
+  font-size:13px;
+  font-weight:900
+}
+
+.channel-feature-options{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px
+}
+
+.channel-feature-option{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  padding:12px 14px;
+  border:1px solid #ddd5e8;
+  border-radius:12px;
+  background:#fff;
+  color:#51485c;
+  font-size:13px;
+  font-weight:900;
+  cursor:pointer
+}
+
+.channel-feature-option input{
+  width:18px;
+  height:18px;
+  margin:0;
+  accent-color:#8064cb
+}
+
+.channel-feature-fieldset small{
+  line-height:1.5
+}
+
 #channelOwnerSearch{
   border-color:#ddd5e8
 }

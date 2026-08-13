@@ -8,8 +8,6 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
 
-export const HNSITE_VERSION =
-  "34";
 
 
 export function platformRole(

@@ -3,23 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script>
-    (() => {
-      const url = new URL(window.location.href);
-      if (!url.searchParams.has("_fresh")) {
-        url.searchParams.set("_fresh", Date.now().toString());
-        window.location.replace(url.toString());
-        return;
-      }
-      url.searchParams.delete("_fresh");
-      const query = url.searchParams.toString();
-      window.history.replaceState(null, "", url.pathname + (query ? `?${query}` : "") + url.hash);
-    })();
-  </script>
   <title>빙고방 | HNSITE</title>
   <meta name="theme-color" content="#7d65ce" />
   <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="stylesheet" href="./assets/styles.css?v=34" />
+  <link rel="stylesheet" href="./assets/styles.css" />
 </head>
 <body class="app-page bingo-room-page">
   <header class="topbar app-topbar">
@@ -153,9 +140,9 @@
     </div>
   </main>
 
-  <script type="module" src="./js/bingo-room.js?v=34"></script>
-  <script type="module" src="./js/update-modal.js?v=34"></script>
-  <script type="module" src="./js/network-status.js?v=34"></script>
-  <script type="module" src="./js/pwa.js?v=34"></script>
+  <script type="module" src="./js/bingo-room.js"></script>
+  <script type="module" src="./js/update-modal.js"></script>
+  <script type="module" src="./js/network-status.js"></script>
+  <script type="module" src="./js/pwa.js"></script>
 </body>
 </html>

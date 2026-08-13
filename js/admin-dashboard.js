@@ -1,8 +1,8 @@
 import { db } from "./firebase-config.js";
 import { collection, getDocs } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
-import { showNotice } from "./ui-dialog.js?v=34";
-import { firebaseErrorMessage } from "./error-messages.js?v=34";
-import { isChannelManager } from "./channel-context.js?v=34";
+import { showNotice } from "./ui-dialog.js";
+import { firebaseErrorMessage } from "./error-messages.js";
+import { isChannelManager } from "./channel-context.js";
 
 let currentProfile = null;
 let currentContext = null;

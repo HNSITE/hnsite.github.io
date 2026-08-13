@@ -35,15 +35,15 @@ import {
   normalizeMemberStatus,
   loadPlatformProfile,
   setCurrentChannelId
-} from "./channel-context.js?v=34";
+} from "./channel-context.js";
 
 import {
   firebaseErrorMessage
-} from "./error-messages.js?v=34";
+} from "./error-messages.js";
 
 import {
   showConfirm
-} from "./ui-dialog.js?v=34";
+} from "./ui-dialog.js";
 
 
 const CHANNEL_PAGE_SIZE = 8;
@@ -2235,6 +2235,18 @@ async function createChannel(
     );
 
 
+  const bingoEnabled =
+    document.getElementById(
+      "channelFeatureBingo"
+    )?.checked === true;
+
+
+  const killEnabled =
+    document.getElementById(
+      "channelFeatureKill"
+    )?.checked === true;
+
+
   if (!name) {
 
     setCreateMessage(
@@ -2256,6 +2268,20 @@ async function createChannel(
 
     setCreateMessage(
       "채널 소유자를 선택해주세요."
+    );
+
+
+    return;
+  }
+
+
+  if (
+    !bingoEnabled &&
+    !killEnabled
+  ) {
+
+    setCreateMessage(
+      "빙고와 킬내기 중 하나 이상을 선택해주세요."
     );
 
 
@@ -2374,11 +2400,9 @@ async function createChannel(
             subscriptionStatus:
               "beta",
 
-            bingoEnabled:
-              true,
+            bingoEnabled,
 
-            killEnabled:
-              false,
+            killEnabled,
 
             killPlan:
               "none",
@@ -2423,10 +2447,14 @@ async function createChannel(
               "approved",
 
             bingoAccess:
-              "write",
+              bingoEnabled
+                ? "write"
+                : "none",
 
             killSheetAccess:
-              "none",
+              killEnabled
+                ? "write"
+                : "none",
 
             requestedAt:
               null,
