@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HNSITE 로그인</title>
+  <link rel="stylesheet" href="./assets/styles.css?v=28" />
+</head>
+<body class="login-page">
+  <div class="login-deco deco-one" aria-hidden="true"></div>
+  <div class="login-deco deco-two" aria-hidden="true"></div>
+
+  <main class="login-card cute-login-card">
+    <div class="login-illustration" aria-hidden="true">✦</div>
+    <div class="brand">HNSITE</div>
+    <h1>반가워요!</h1>
+    <p class="muted login-description">승인된 Google 계정으로 간편하게 접속하세요.</p>
+
+    <button id="googleLoginButton" type="button" class="google-button">
+      <span class="google-mark" aria-hidden="true">G</span>
+      <span>Google 계정으로 로그인</span>
+    </button>
+    <p id="loginMessage" class="message login-message" aria-live="polite"></p>
+
+    <div class="login-divider"><span>처음 이용하시나요?</span></div>
+    <p class="muted request-help">Google 계정으로 로그인한 뒤 관리자에게 사용 승인을 요청할 수 있어요.</p>
+
+    <section id="requestPanel" class="request-panel cute-request-panel hidden">
+      <div class="request-icon" aria-hidden="true">♡</div>
+      <h2 class="sub-title">사용 승인 요청</h2>
+      <p class="muted">아래 Google 계정으로 승인 요청을 보냅니다.</p>
+      <form id="requestForm" class="stack">
+        <label>이름<input id="requestName" type="text" maxlength="30" required /></label>
+        <label>Google 계정<input id="requestEmail" type="email" readonly /></label>
+        <button id="requestButton" type="submit">승인 요청 보내기</button>
+        <button id="cancelRequestButton" type="button" class="secondary">다른 계정 사용</button>
+        <p id="requestMessage" class="message" aria-live="polite"></p>
+      </form>
+    </section>
+  </main>
+
+  <script type="module" src="./js/login.js?v=28"></script>
+</body>
+</html>

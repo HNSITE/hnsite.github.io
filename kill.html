@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#7d65ce" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <title>킬내기 | HNSITE</title>
+  <link rel="stylesheet" href="./assets/styles.css?v=28" />
+</head>
+<body class="app-page" data-feature="kill">
+  <header class="topbar app-topbar">
+    <a class="topbar-brand" href="./app.html">HNSITE</a>
+    <nav class="topbar-user">
+      <a class="topbar-link" href="./app.html">메인</a>
+      <a class="topbar-link" href="./channels.html">채널 변경</a>
+      <span id="currentChannelName" class="channel-badge"></span>
+      <span id="userEmail" class="topbar-email"></span>
+      <span id="roleBadge" class="badge"></span>
+      <button id="logoutButton" class="secondary compact-button" type="button">로그아웃</button>
+    </nav>
+  </header>
+  <main class="page-wrap feature-page-wrap">
+    <section id="loadingPanel" class="panel"><h2>권한을 확인하고 있습니다...</h2></section>
+    <section id="featureContent" class="panel hidden">
+      <p class="eyebrow">HNSITE</p>
+      <h1>킬내기</h1>
+      <p id="featurePermission" class="muted"></p>
+      <div class="coming-soon-box">킬내기 화면은 다음 단계에서 구현합니다.</div>
+    </section>
+  </main>
+  <script type="module" src="./js/feature.js?v=28"></script>
+  <script type="module" src="./js/update-modal.js?v=28"></script>
+  <script type="module" src="./js/network-status.js?v=28"></script>
+  <script type="module" src="./js/pwa.js?v=28"></script>
+</body>
+</html>
