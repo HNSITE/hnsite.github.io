@@ -51,7 +51,19 @@
   <span class="channel-create-plus">＋</span>
   <span>채널 생성</span>
 </button>
-
+<button
+  id="openChannelRequestsButton"
+  class="channel-request-admin-button hidden"
+  type="button"
+>
+  채널 신청
+  <span
+    id="channelRequestBadge"
+    class="channel-request-badge hidden"
+  >
+    0
+  </span>
+</button>
       <span
         id="userEmail"
         class="topbar-email"
@@ -107,15 +119,27 @@
 
       </section>
 
-<div class="channel-search-wrap">
-  <input
-    id="channelSearch"
-    class="channel-search-input"
-    type="search"
-    placeholder="채널 이름 검색"
-    autocomplete="off"
-    aria-label="채널 검색"
-  />
+<div class="channel-toolbar">
+
+  <div class="channel-search-wrap">
+    <input
+      id="channelSearch"
+      class="channel-search-input"
+      type="search"
+      placeholder="채널 이름 검색"
+      autocomplete="off"
+      aria-label="채널 검색"
+    />
+  </div>
+
+  <button
+    id="requestChannelCreationButton"
+    class="channel-request-button hidden"
+    type="button"
+  >
+    채널 생성 신청하기
+  </button>
+
 </div>
 
 <p id="channelMessage" class="message"></p>
@@ -257,7 +281,53 @@
 
   </div>
 
+<div
+  id="channelRequestsModal"
+  class="admin-modal hidden"
+>
+  <div
+    class="admin-modal-backdrop"
+    data-close-channel-requests
+  ></div>
 
+  <section
+    class="admin-modal-dialog channel-request-modal-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="channelRequestsTitle"
+  >
+    <div class="admin-modal-header">
+      <div>
+        <p class="eyebrow">CHANNEL REQUEST</p>
+        <h2 id="channelRequestsTitle">
+          채널 생성 신청
+        </h2>
+        <p class="muted">
+          채널 생성을 요청한 사용자를 확인합니다.
+        </p>
+      </div>
+
+      <button
+        class="modal-close-button"
+        data-close-channel-requests
+        type="button"
+        aria-label="닫기"
+      >
+        ×
+      </button>
+    </div>
+
+    <p
+      id="channelRequestsMessage"
+      class="message admin-modal-message"
+    ></p>
+
+    <div
+      id="channelRequestsList"
+      class="channel-request-list"
+    ></div>
+  </section>
+</div>
   <script
     type="module"
     src="./js/channels.js?v=29"

@@ -264,3 +264,146 @@ body.modal-open{overflow:hidden}.update-news-button{display:inline-flex;align-it
     min-height: 170px;
   }
 }
+
+/* 채널 생성 신청 */
+
+.channel-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.channel-toolbar .channel-search-wrap {
+  margin: 0;
+}
+
+.channel-request-button {
+  min-height: 48px;
+  padding: 0 18px;
+  border: 1px solid #d7cbea;
+  border-radius: 15px;
+  background: #fff;
+  color: #765bc2;
+  box-shadow: 0 6px 18px rgba(65, 55, 89, .04);
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.channel-request-button:hover {
+  background: #f8f5ff;
+  border-color: #bdaae2;
+}
+
+.channel-request-admin-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid #ead9df;
+  border-radius: 12px;
+  background: #fff8fa;
+  color: #a14565;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.channel-request-admin-button:hover {
+  background: #fff0f5;
+}
+
+.channel-request-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #d94d71;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.channel-request-modal-dialog {
+  width: min(720px, 100%);
+}
+
+.channel-request-list {
+  display: grid;
+  gap: 10px;
+  padding: 20px 26px 26px;
+  overflow: auto;
+}
+
+.channel-request-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid #e8e2ef;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.channel-request-info {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.channel-request-info strong {
+  color: #40364d;
+  font-size: 15px;
+}
+
+.channel-request-info span {
+  color: #756c80;
+  font-size: 13px;
+}
+
+.channel-request-info small {
+  color: #9a91a4;
+  font-size: 11px;
+}
+
+.channel-request-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.channel-request-empty {
+  padding: 36px 18px;
+  border: 1px dashed #ddd5e8;
+  border-radius: 16px;
+  color: #82798d;
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .channel-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .channel-request-button {
+    width: 100%;
+  }
+
+  .channel-request-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .channel-request-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}
