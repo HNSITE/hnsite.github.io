@@ -17,7 +17,9 @@
     })();
   </script>
   <title>빙고방 | CHURANG</title>
-  <link rel="stylesheet" href="./assets/styles.css?v=25" />
+  <meta name="theme-color" content="#7d65ce" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./assets/styles.css?v=27" />
 </head>
 <body class="app-page bingo-room-page">
   <header class="topbar app-topbar">
@@ -47,6 +49,7 @@
         </div>
         <p id="roomMessage" class="message room-inline-message"></p>
         <div id="roomClosedNotice" class="room-closed-notice hidden">종료된 빙고방입니다. 결과만 확인할 수 있습니다.</div>
+        <div id="roomPresenceSummary" class="room-presence-summary">접속 상태 확인 중...</div>
 
         <div id="participantManagePanel" class="room-participant-inline hidden">
           <div class="section-title-row participant-inline-head">
@@ -79,6 +82,14 @@
             </section>
           </div>
         </div>
+      </section>
+
+      <section id="resultSummaryPanel" class="panel result-summary-panel hidden">
+        <div class="section-title-row">
+          <div><p class="eyebrow">RESULT</p><h2>빙고 결과 요약</h2></div>
+          <button id="printResultButton" class="secondary compact-button" type="button">결과 인쇄</button>
+        </div>
+        <div id="resultSummaryGrid" class="result-summary-grid"></div>
       </section>
 
       <section class="panel bingo-board-panel">
@@ -140,7 +151,9 @@
     </div>
   </main>
 
-  <script type="module" src="./js/bingo-room.js?v=25"></script>
-  <script type="module" src="./js/update-modal.js?v=25"></script>
+  <script type="module" src="./js/bingo-room.js?v=27"></script>
+  <script type="module" src="./js/update-modal.js?v=27"></script>
+  <script type="module" src="./js/network-status.js?v=27"></script>
+  <script type="module" src="./js/pwa.js?v=27"></script>
 </body>
 </html>

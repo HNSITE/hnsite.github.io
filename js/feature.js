@@ -1,8 +1,8 @@
 import { auth, db } from "./firebase-config.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
-import { initUserManagementModal } from "./admin-modal.js?v=25";
-import { firebaseErrorMessage } from "./error-messages.js?v=25";
+import { initUserManagementModal } from "./admin-modal.js?v=27";
+import { firebaseErrorMessage } from "./error-messages.js?v=27";
 
 const feature = document.body.dataset.feature;
 const loadingPanel = document.getElementById("loadingPanel");
@@ -11,10 +11,12 @@ const featureContent = document.getElementById("featureContent");
 const roleLabel = (value) => ({
   super_admin: "최고관리자",
   admin: "관리자",
+  developer: "개발자",
   user: "일반사용자"
 }[value] || value);
 
-const isManager = (profile) => ["super_admin", "admin"].includes(profile?.role);
+const isManager = (profile) => ["super_admin", "admin", "developer"].includes(profile?.role);
+const isDeveloper = (profile) => profile?.role === "developer";
 
 async function loadProfile(user) {
   const snap = await getDoc(doc(db, "users", user.uid));
@@ -34,14 +36,16 @@ onAuthStateChanged(auth, async (user) => {
     const profile = await loadProfile(user);
     if (isManager(profile)) initUserManagementModal(profile);
     const field = feature === "bingo" ? "bingoAccess" : "killSheetAccess";
-    const access = isManager(profile) ? "write" : (profile[field] || "none");
+    const access = (isManager(profile) || isDeveloper(profile)) ? "write" : (profile[field] || "none");
 
     if (access === "none") {
       throw new Error("이 메뉴에 접근할 권한이 없습니다.");
     }
 
     document.getElementById("userEmail").textContent = user.email || "";
-    document.getElementById("roleBadge").textContent = roleLabel(profile.role);
+    const roleBadge = document.getElementById("roleBadge");
+    roleBadge.textContent = roleLabel(profile.role);
+    roleBadge.dataset.role = profile.role;
     document.getElementById("featurePermission").textContent = access === "write"
       ? "쓰기 권한으로 이용 중입니다."
       : "읽기 권한으로 이용 중입니다.";

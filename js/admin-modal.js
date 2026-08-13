@@ -18,7 +18,7 @@ import {
   ref as storageRef
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
 import { showConfirm, showNotice } from "./ui-dialog.js?v=14";
-import { firebaseErrorMessage } from "./error-messages.js?v=25";
+import { firebaseErrorMessage } from "./error-messages.js?v=27";
 
 const PAGE_SIZE = 10;
 const AUDIT_PAGE_SIZE = 20;
@@ -37,9 +37,10 @@ const tabState = {
 };
 
 const accessLabel = (value) => ({ none: "권한 없음", read: "읽기", write: "쓰기" }[value] || "권한 없음");
-const roleLabel = (value) => ({ super_admin: "최고관리자", admin: "관리자", user: "일반사용자" }[value] || value);
+const roleLabel = (value) => ({ super_admin: "최고관리자", admin: "관리자", developer: "개발자", user: "일반사용자" }[value] || value);
 const statusLabel = (value) => ({ pending: "승인대기", approved: "승인", suspended: "사용중지" }[value] || value);
-const isManager = () => ["super_admin", "admin"].includes(currentProfile?.role);
+const isManager = () => ["super_admin", "admin", "developer"].includes(currentProfile?.role);
+const isDeveloper = () => currentProfile?.role === "developer";
 
 function currentTabState() {
   return tabState[activeTab];
@@ -61,6 +62,7 @@ function ensureModal() {
           <p class="muted">승인 요청, 서비스 권한, 관리자 변경 이력을 관리합니다.</p>
         </div>
         <div class="admin-modal-header-actions">
+          <button id="transferOwnerButton" class="secondary compact-button hidden" type="button">최고관리자 이전</button>
           <button id="adminRefreshUsers" class="secondary compact-button" type="button">새로고침</button>
           <button id="adminModalClose" class="modal-close-button" type="button" aria-label="사용자 관리 닫기">×</button>
         </div>
@@ -146,6 +148,7 @@ function ensureModal() {
 
   document.getElementById("adminModalClose").addEventListener("click", closeUserManagementModal);
   modal.querySelector("[data-close-admin-modal]").addEventListener("click", closeUserManagementModal);
+  document.getElementById("transferOwnerButton").addEventListener("click", transferSiteOwnership);
   document.getElementById("adminRefreshUsers").addEventListener("click", async () => {
     if (activeTab === "audit") await loadAuditLogs();
     else await loadUsers();
@@ -333,9 +336,73 @@ async function loadUsers() {
     renderTabs();
     syncControlsFromState();
     renderUsers();
+    updateOwnerTransferButton();
   } catch (error) {
     console.error(error);
     message.textContent = firebaseErrorMessage(error, "사용자 목록을 불러오지 못했습니다.");
+  }
+}
+
+
+function updateOwnerTransferButton() {
+  const button = document.getElementById("transferOwnerButton");
+  if (!button) return;
+  const admins = allUsers.filter((user) => user.role === "admin" && user.status === "approved");
+  const hasDeveloper = allUsers.some((user) => user.role === "developer" && user.status === "approved");
+  button.classList.toggle("hidden", currentProfile?.role !== "super_admin" || hasDeveloper || admins.length === 0);
+}
+
+async function transferSiteOwnership() {
+  if (currentProfile?.role !== "super_admin") return;
+  const admins = allUsers.filter((user) => user.role === "admin" && user.status === "approved");
+  const hasDeveloper = allUsers.some((user) => user.role === "developer" && user.status === "approved");
+  if (hasDeveloper) {
+    await showNotice("이미 개발자 계정이 설정되어 있어 이 전환은 다시 실행할 수 없습니다.");
+    return;
+  }
+  if (!admins.length) {
+    await showNotice("최고관리자로 이전할 관리자가 없습니다.");
+    return;
+  }
+  if (admins.length > 1) {
+    await showNotice("관리자가 여러 명입니다. 사용자 목록에서 최고관리자로 지정할 관리자를 먼저 한 명만 남겨주세요.");
+    return;
+  }
+
+  const target = admins[0];
+  const targetName = target.name || target.email || "관리자";
+  const confirmed = await showConfirm(
+    `${targetName}님을 이 서비스의 최고관리자로 변경하고, 현재 최고관리자 계정은 개발자로 전환할까요?\n\n최고관리자는 서비스 운영의 최종 관리자이며, 개발자는 기능 테스트를 위해 최고관리자 수준의 기능을 계속 사용할 수 있습니다. 업데이트 소식 등록·수정·삭제는 개발자만 가능합니다.`,
+    { title: "최고관리자 이전", confirmText: "이전하기" }
+  );
+  if (!confirmed) return;
+
+  try {
+    const batch = writeBatch(db);
+    batch.update(doc(db, "users", target.uid), { role: "super_admin" });
+    batch.update(doc(db, "users", currentProfile.uid), {
+      role: "developer",
+      bingoAccess: "write",
+      killSheetAccess: "write"
+    });
+    const auditRef = doc(collection(db, "adminAuditLogs"));
+    batch.set(auditRef, {
+      actorUid: currentProfile.uid || "",
+      actorName: currentProfile.name || currentProfile.email || "최고관리자",
+      actorEmail: currentProfile.email || "",
+      action: "owner_transfer",
+      targetUid: target.uid,
+      targetName: target.name || target.email || "관리자",
+      targetEmail: target.email || "",
+      detail: `최고관리자 이전 · ${currentProfile.name || currentProfile.email || "기존 최고관리자"} → 개발자`,
+      createdAt: serverTimestamp()
+    });
+    await batch.commit();
+    await showNotice(`${targetName}님이 최고관리자가 되었습니다. 현재 계정은 개발자로 변경되었으며 테스트용 관리 기능은 그대로 사용할 수 있습니다.`);
+    location.reload();
+  } catch (error) {
+    console.error(error);
+    await showNotice(firebaseErrorMessage(error, "최고관리자 이전에 실패했습니다."));
   }
 }
 
@@ -381,7 +448,7 @@ function filteredSortedUsers() {
     return haystack.includes(query);
   });
 
-  const roleRank = { super_admin: 0, admin: 1, user: 2 };
+  const roleRank = { super_admin: 0, admin: 1, developer: 2, user: 3 };
   const statusRank = { pending: 0, approved: 1, suspended: 2 };
 
   users.sort((a, b) => {
@@ -566,6 +633,16 @@ async function deleteChickenLogsForAdmin(roomId) {
   }
 }
 
+async function deletePresenceForAdmin(roomId) {
+  const snap = await getDocs(collection(db, "bingoRooms", roomId, "presence"));
+  const items = [...snap.docs];
+  for (let start = 0; start < items.length; start += 400) {
+    const batch = writeBatch(db);
+    items.slice(start, start + 400).forEach((item) => batch.delete(item.ref));
+    await batch.commit();
+  }
+}
+
 async function cascadeDeleteManagedUser(user) {
   const roomsRef = collection(db, "bingoRooms");
   const [ownedSnap, invitedSnap] = await Promise.all([
@@ -583,6 +660,7 @@ async function cascadeDeleteManagedUser(user) {
   for (const room of ownedRooms) {
     await deleteRoomImageForAdmin(room.id);
     await deleteChickenLogsForAdmin(room.id);
+    await deletePresenceForAdmin(room.id);
 
     for (const participantUid of room.participantUids || []) {
       await deleteActiveMembershipIfMatches(participantUid, room.id);
@@ -673,7 +751,9 @@ function renderUsers() {
     actions.className = "row-actions";
 
     if (user.role === "super_admin") {
-      actions.textContent = "변경 불가";
+      actions.textContent = "최고관리자";
+    } else if (user.role === "developer") {
+      actions.textContent = "개발자 계정";
     } else if (currentProfile.role === "admin" && user.role !== "user") {
       actions.textContent = "관리자 변경 불가";
     } else if (user.role === "user") {
@@ -712,7 +792,7 @@ function renderUsers() {
         }));
       }
 
-      if (currentProfile.role === "super_admin" && user.status === "approved") {
+      if (["super_admin", "developer"].includes(currentProfile.role) && user.status === "approved") {
         actions.appendChild(makeButton("관리자로 지정", async () => {
           if (!await showConfirm(`${user.name || user.email} 사용자를 관리자로 지정할까요?`, { title: "관리자 지정", confirmText: "지정" })) return;
           try {
@@ -727,7 +807,7 @@ function renderUsers() {
       }
 
       actions.appendChild(makeButton("삭제", () => deleteManagedUser(user), "danger admin-delete-user"));
-    } else if (user.role === "admin" && currentProfile.role === "super_admin") {
+    } else if (user.role === "admin" && ["super_admin", "developer"].includes(currentProfile.role)) {
       actions.appendChild(makeButton("일반사용자로 변경", async () => {
         if (!await showConfirm(`${user.name || user.email} 관리자를 일반사용자로 변경할까요?`, { title: "관리자 해제", confirmText: "변경" })) return;
         try {

@@ -10,14 +10,27 @@ import {
   query,
   serverTimestamp,
   updateDoc,
+  setDoc,
   where
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 import { showConfirm, showNotice } from "./ui-dialog.js?v=14";
-import { firebaseErrorMessage } from "./error-messages.js?v=25";
+import { firebaseErrorMessage } from "./error-messages.js?v=27";
 
 const UPDATE_BADGE_DAYS = 3;
 
 const fallbackUpdates = [
+  {
+    id: "fallback-v26",
+    date: "2026.08.13",
+    title: "빙고 이용 기능이 더 다양해졌어요",
+    items: [
+      "원하는 문구를 직접 넣는 자유 텍스트 빙고를 만들 수 있습니다.",
+      "빙고방 복제, 초대 링크와 QR 코드, 종료 결과 요약을 사용할 수 있습니다.",
+      "방 목록 검색·필터와 즐겨찾기, 네트워크 상태 안내가 추가되었습니다."
+    ],
+    published: true,
+    fallback: true
+  },
   {
     id: "fallback-v25",
     date: "2026.08.13",
@@ -74,7 +87,7 @@ let visibleUpdates = [...fallbackUpdates];
 let initialized = false;
 let editingUpdateId = null;
 
-const isManager = () => ["admin", "super_admin"].includes(currentProfile?.role) && currentProfile?.status === "approved";
+const isUpdateOwner = () => currentProfile?.role === "developer" && currentProfile?.status === "approved";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -110,8 +123,11 @@ function updateSortValue(update) {
 }
 
 function rebuildVisibleUpdates() {
-  const publishedManaged = managedUpdates.filter((item) => item.published !== false);
-  visibleUpdates = [...publishedManaged, ...fallbackUpdates]
+  const managedById = new Map(managedUpdates.map((item) => [item.id, item]));
+  const fallbackIds = new Set(fallbackUpdates.map((item) => item.id));
+  const mergedFallbacks = fallbackUpdates.map((item) => ({ ...item, ...(managedById.get(item.id) || {}), fallback: true }));
+  const custom = managedUpdates.filter((item) => !fallbackIds.has(item.id) && item.published !== false);
+  visibleUpdates = [...custom, ...mergedFallbacks.filter((item) => item.published !== false)]
     .sort((a, b) => updateSortValue(b) - updateSortValue(a));
 }
 
@@ -215,15 +231,21 @@ function renderUpdateList() {
 
 function renderManageList() {
   const container = document.getElementById("updateManageList");
-  if (!container) return;
-  if (!managedUpdates.length) {
-    container.innerHTML = '<div class="update-manage-empty">관리 화면에서 등록한 업데이트가 없습니다.<br>기존 기본 업데이트는 소식 보기에서 계속 표시됩니다.</div>';
+  if (!container || !isUpdateOwner()) return;
+  const fallbackIds = new Set(fallbackUpdates.map((item) => item.id));
+  const managedById = new Map(managedUpdates.map((item) => [item.id, item]));
+  const items = [
+    ...fallbackUpdates.map((item) => ({ ...item, ...(managedById.get(item.id) || {}), fallback: true })),
+    ...managedUpdates.filter((item) => !fallbackIds.has(item.id))
+  ].sort((a, b) => updateSortValue(b) - updateSortValue(a));
+
+  if (!items.length) {
+    container.innerHTML = '<div class="update-manage-empty">등록된 업데이트가 없습니다.</div>';
     return;
   }
 
-  const sorted = [...managedUpdates].sort((a, b) => updateSortValue(b) - updateSortValue(a));
   container.innerHTML = "";
-  sorted.forEach((update) => {
+  items.forEach((update) => {
     const item = document.createElement("article");
     item.className = "update-manage-item";
     item.innerHTML = `
@@ -231,6 +253,7 @@ function renderManageList() {
         <div class="update-manage-meta">
           <time>${escapeHtml(update.date)}</time>
           <span class="${update.published === false ? "update-draft-pill" : "update-published-pill"}">${update.published === false ? "비공개" : "공개"}</span>
+          ${update.fallback ? '<span class="update-default-pill">기존 소식</span>' : ""}
         </div>
         <strong>${escapeHtml(update.title)}</strong>
         <p>${escapeHtml((update.items || []).join(" · "))}</p>
@@ -243,12 +266,15 @@ function renderManageList() {
     edit.className = "secondary compact-button";
     edit.textContent = "수정";
     edit.addEventListener("click", () => beginEditUpdate(update));
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "danger-outline compact-button";
-    remove.textContent = "삭제";
-    remove.addEventListener("click", () => removeManagedUpdate(update));
-    actions.append(edit, remove);
+    actions.appendChild(edit);
+    if (!update.fallback) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "danger-outline compact-button";
+      remove.textContent = "삭제";
+      remove.addEventListener("click", () => removeManagedUpdate(update));
+      actions.appendChild(remove);
+    }
     container.appendChild(item);
   });
 }
@@ -261,6 +287,7 @@ function resetManageForm() {
   const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   document.getElementById("updateManageDate").value = localDate;
   document.getElementById("updateManagePublished").checked = true;
+  document.getElementById("updateManagePublished").disabled = false;
   document.getElementById("updateManageSave").textContent = "등록";
   document.getElementById("updateManageCancel").classList.add("hidden");
   const message = document.getElementById("updateManageMessage");
@@ -274,7 +301,9 @@ function beginEditUpdate(update) {
   document.getElementById("updateManageDate").value = inputDate(update.date);
   document.getElementById("updateManageTitle").value = update.title || "";
   document.getElementById("updateManageItems").value = (update.items || []).join("\n");
-  document.getElementById("updateManagePublished").checked = update.published !== false;
+  const publishCheck = document.getElementById("updateManagePublished");
+  publishCheck.checked = update.fallback ? true : update.published !== false;
+  publishCheck.disabled = Boolean(update.fallback);
   document.getElementById("updateManageSave").textContent = "수정 저장";
   document.getElementById("updateManageCancel").classList.remove("hidden");
   document.getElementById("updateManageForm").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -284,7 +313,7 @@ async function writeUpdateAudit(action, update, detail) {
   try {
     await addDoc(collection(db, "adminAuditLogs"), {
       actorUid: currentProfile.uid || "",
-      actorName: currentProfile.name || currentProfile.email || "관리자",
+      actorName: currentProfile.name || currentProfile.email || "개발자",
       actorEmail: currentProfile.email || "",
       action,
       targetUid: "",
@@ -300,7 +329,7 @@ async function writeUpdateAudit(action, update, detail) {
 
 async function saveManagedUpdate(event) {
   event.preventDefault();
-  if (!isManager()) return;
+  if (!isUpdateOwner()) return;
   const message = document.getElementById("updateManageMessage");
   const date = normalizeDate(document.getElementById("updateManageDate").value);
   const title = document.getElementById("updateManageTitle").value.trim();
@@ -319,8 +348,15 @@ async function saveManagedUpdate(event) {
   const payload = { date, title, items, published, updatedAt: serverTimestamp() };
   try {
     if (editingUpdateId) {
-      await updateDoc(doc(db, "appUpdates", editingUpdateId), payload);
-      await writeUpdateAudit("update_edit", { title }, `${date} · ${published ? "공개" : "비공개"}`);
+      const fallbackIds = new Set(fallbackUpdates.map((item) => item.id));
+      if (fallbackIds.has(editingUpdateId)) {
+        const alreadyOverridden = managedUpdates.some((item) => item.id === editingUpdateId);
+        if (alreadyOverridden) await updateDoc(doc(db, "appUpdates", editingUpdateId), { ...payload, published: true });
+        else await setDoc(doc(db, "appUpdates", editingUpdateId), { ...payload, published: true, createdAt: serverTimestamp() });
+      } else {
+        await updateDoc(doc(db, "appUpdates", editingUpdateId), payload);
+      }
+      await writeUpdateAudit("update_edit", { title }, `${date} · ${fallbackIds.has(editingUpdateId) ? "기존 소식" : (published ? "공개" : "비공개")}`);
       message.textContent = "업데이트 내용을 수정했습니다.";
     } else {
       await addDoc(collection(db, "appUpdates"), { ...payload, createdAt: serverTimestamp() });
@@ -339,7 +375,7 @@ async function saveManagedUpdate(event) {
 }
 
 async function removeManagedUpdate(update) {
-  if (!isManager()) return;
+  if (!isUpdateOwner()) return;
   const confirmed = await showConfirm(
     `${update.title} 업데이트를 삭제할까요?`,
     { title: "업데이트 삭제", confirmText: "삭제", danger: true }
@@ -361,7 +397,7 @@ async function loadUpdates() {
   if (!currentProfile) return;
   try {
     const ref = collection(db, "appUpdates");
-    const snap = isManager()
+    const snap = isUpdateOwner()
       ? await getDocs(ref)
       : await getDocs(query(ref, where("published", "==", true)));
     managedUpdates = snap.docs.map((item) => ({ id: item.id, ...item.data() }));
@@ -372,7 +408,7 @@ async function loadUpdates() {
   rebuildVisibleUpdates();
   renderUpdateList();
   setUnreadBadgeVisible(isLatestUpdateInBadgeWindow());
-  if (isManager()) renderManageList();
+  if (isUpdateOwner()) renderManageList();
 }
 
 function openUpdateModal() {
@@ -391,7 +427,7 @@ function closeUpdateModal() {
 }
 
 function openManageView() {
-  if (!isManager()) return;
+  if (!isUpdateOwner()) return;
   document.getElementById("updateNewsView").classList.add("hidden");
   document.getElementById("updateManageView").classList.remove("hidden");
   if (!editingUpdateId) resetManageForm();
@@ -430,7 +466,7 @@ onAuthStateChanged(auth, async (user) => {
   try {
     const profileSnap = await getDoc(doc(db, "users", user.uid));
     currentProfile = profileSnap.exists() ? { uid: user.uid, ...profileSnap.data() } : null;
-    document.getElementById("updateManageButton")?.classList.toggle("hidden", !isManager());
+    document.getElementById("updateManageButton")?.classList.toggle("hidden", !isUpdateOwner());
     await loadUpdates();
   } catch (error) {
     console.error("업데이트 초기화 실패", error);

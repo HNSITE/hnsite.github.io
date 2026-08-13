@@ -16,8 +16,10 @@
       window.history.replaceState(null, "", url.pathname + (query ? `?${query}` : "") + url.hash);
     })();
   </script>
+  <meta name="theme-color" content="#7d65ce" />
+  <link rel="manifest" href="./manifest.webmanifest" />
   <title>CHURANG</title>
-  <link rel="stylesheet" href="./assets/styles.css?v=25" />
+  <link rel="stylesheet" href="./assets/styles.css?v=27" />
 </head>
 <body class="app-page">
   <header class="topbar app-topbar">
@@ -58,7 +60,9 @@
     </section>
   </main>
 
-  <script type="module" src="./js/app.js?v=25"></script>
-  <script type="module" src="./js/update-modal.js?v=25"></script>
+  <script type="module" src="./js/app.js?v=27"></script>
+  <script type="module" src="./js/update-modal.js?v=27"></script>
+  <script type="module" src="./js/network-status.js?v=27"></script>
+  <script type="module" src="./js/pwa.js?v=27"></script>
 </body>
 </html>

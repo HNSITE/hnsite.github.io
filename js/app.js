@@ -1,9 +1,10 @@
 import { auth, db } from "./firebase-config.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
-import { initUserManagementModal } from "./admin-modal.js?v=25";
+import { initUserManagementModal } from "./admin-modal.js?v=27";
+import { initAdminDashboard } from "./admin-dashboard.js?v=27";
 import { showNotice } from "./ui-dialog.js?v=14";
-import { firebaseErrorMessage } from "./error-messages.js?v=25";
+import { firebaseErrorMessage } from "./error-messages.js?v=27";
 
 const loadingPanel = document.getElementById("loadingPanel");
 const appContent = document.getElementById("appContent");
@@ -11,6 +12,7 @@ const appContent = document.getElementById("appContent");
 const roleLabel = (value) => ({
   super_admin: "최고관리자",
   admin: "관리자",
+  developer: "개발자",
   user: "일반사용자"
 }[value] || value);
 
@@ -20,7 +22,8 @@ const accessLabel = (value) => ({
   write: "사용 가능"
 }[value] || "접근 권한 없음");
 
-const isManager = (profile) => ["super_admin", "admin"].includes(profile?.role);
+const isManager = (profile) => ["super_admin", "admin", "developer"].includes(profile?.role);
+const isDeveloper = (profile) => profile?.role === "developer";
 
 async function loadProfile(user) {
   const snap = await getDoc(doc(db, "users", user.uid));
@@ -35,7 +38,7 @@ async function loadProfile(user) {
 }
 
 function applyServiceAccess(profile, field, textId, buttonId, cardId) {
-  const access = isManager(profile) ? "write" : (profile[field] || "none");
+  const access = (isManager(profile) || isDeveloper(profile)) ? "write" : (profile[field] || "none");
   const text = document.getElementById(textId);
   const button = document.getElementById(buttonId);
   const card = document.getElementById(cardId);
@@ -64,10 +67,13 @@ onAuthStateChanged(auth, async (user) => {
     const profile = await loadProfile(user);
 
     document.getElementById("userEmail").textContent = user.email || "";
-    document.getElementById("roleBadge").textContent = roleLabel(profile.role);
+    const roleBadge = document.getElementById("roleBadge");
+    roleBadge.textContent = roleLabel(profile.role);
+    roleBadge.dataset.role = profile.role;
     document.getElementById("welcomeText").textContent = `${profile.name || user.displayName || "사용자"}님, 반가워요.`;
 
     if (isManager(profile)) {
+      initAdminDashboard(profile);
       const userManagement = initUserManagementModal(profile);
       const params = new URLSearchParams(window.location.search);
       if (params.get("users") === "1") {

@@ -17,7 +17,9 @@
     })();
   </script>
   <title>빙고 | CHURANG</title>
-  <link rel="stylesheet" href="./assets/styles.css?v=25" />
+  <meta name="theme-color" content="#7d65ce" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./assets/styles.css?v=27" />
 </head>
 <body class="app-page">
   <header class="topbar app-topbar">
@@ -87,6 +89,7 @@
             <select id="boardType" required>
               <option value="number" selected>숫자 빙고</option>
               <option value="alphabet">알파벳 빙고</option>
+              <option value="text">자유 텍스트 빙고</option>
             </select>
           </label>
 
@@ -142,6 +145,33 @@
             </div>
           </section>
 
+          <section id="textOptions" class="alphabet-options text-bingo-options hidden" aria-labelledby="textOptionsTitle">
+            <div class="alphabet-options-head">
+              <div>
+                <strong id="textOptionsTitle">자유 텍스트 직접 지정</strong>
+                <p>숫자나 알파벳 대신 원하는 단어와 짧은 문구를 각 칸에 넣을 수 있습니다.</p>
+              </div>
+              <span id="customTextCount" class="list-count-text"></span>
+            </div>
+            <div class="alphabet-quick-tools">
+              <textarea id="textBulkInput" rows="4" maxlength="3000" placeholder="한 줄에 하나씩 입력하거나 쉼표로 구분하세요. 예: 치킨, 피자, 햄버거"></textarea>
+              <div class="alphabet-tool-buttons">
+                <button id="applyTextBulkButton" class="secondary compact-button" type="button">한번에 입력</button>
+                <button id="clearTextButton" class="danger-outline compact-button" type="button">전체 비우기</button>
+              </div>
+              <p class="muted alphabet-paste-help">중복 입력이 가능하며 각 칸은 최대 20자입니다.</p>
+            </div>
+            <div class="custom-alphabet-scroll">
+              <div id="customTextGrid" class="custom-text-grid" aria-label="자유 텍스트 직접 입력"></div>
+            </div>
+          </section>
+
+          <label class="auto-close-field">
+            자동 종료 예약 <span class="muted">(선택)</span>
+            <input id="autoCloseAt" type="datetime-local" />
+            <small class="muted">예약 시간이 지나면 사용자가 앱을 확인하는 시점에 자동으로 종료 처리됩니다.</small>
+          </label>
+
           <div class="image-policy-box">
             <div>
               <strong>빙고 사진</strong>
@@ -186,12 +216,33 @@
           </div>
           <button id="refreshRoomsButton" class="secondary compact-button" type="button">새로고침</button>
         </div>
+        <div class="room-list-toolbar">
+          <input id="roomSearch" type="search" placeholder="방 이름 또는 방장 검색" autocomplete="off" />
+          <select id="roomStatusFilter" aria-label="방 상태 필터">
+            <option value="all">전체 상태</option>
+            <option value="active">진행 중</option>
+            <option value="closed">종료</option>
+          </select>
+          <select id="roomTypeFilter" aria-label="빙고 종류 필터">
+            <option value="all">전체 종류</option>
+            <option value="number">숫자</option>
+            <option value="alphabet">알파벳</option>
+            <option value="text">자유 텍스트</option>
+          </select>
+          <select id="roomSort" aria-label="방 정렬">
+            <option value="recent">최근 사용 순</option>
+            <option value="name">이름 순</option>
+            <option value="created">생성일 순</option>
+          </select>
+        </div>
         <div id="roomList" class="bingo-room-list"></div>
       </section>
     </div>
   </main>
 
-  <script type="module" src="./js/bingo.js?v=25"></script>
-  <script type="module" src="./js/update-modal.js?v=25"></script>
+  <script type="module" src="./js/bingo.js?v=27"></script>
+  <script type="module" src="./js/update-modal.js?v=27"></script>
+  <script type="module" src="./js/network-status.js?v=27"></script>
+  <script type="module" src="./js/pwa.js?v=27"></script>
 </body>
 </html>

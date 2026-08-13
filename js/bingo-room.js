@@ -1,6 +1,7 @@
 import { auth, db, storage } from "./firebase-config.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
 import {
+  addDoc,
   collection,
   deleteDoc,
   doc,
@@ -9,6 +10,8 @@ import {
   onSnapshot,
   runTransaction,
   serverTimestamp,
+  setDoc,
+  updateDoc,
   writeBatch
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 import {
@@ -16,8 +19,8 @@ import {
   getDownloadURL,
   ref as storageRef
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
-import { initUserManagementModal } from "./admin-modal.js?v=25";
-import { firebaseErrorMessage } from "./error-messages.js?v=25";
+import { initUserManagementModal } from "./admin-modal.js?v=27";
+import { firebaseErrorMessage } from "./error-messages.js?v=27";
 import { showConfirm, showNotice } from "./ui-dialog.js?v=14";
 
 // 빙고방 ID는 URL에 노출하지 않습니다.
@@ -57,6 +60,10 @@ const chickenHistoryButton = document.getElementById("chickenHistoryButton");
 const chickenHistoryPanel = document.getElementById("chickenHistoryPanel");
 const closeChickenHistoryButton = document.getElementById("closeChickenHistoryButton");
 const chickenHistoryList = document.getElementById("chickenHistoryList");
+const roomPresenceSummary = document.getElementById("roomPresenceSummary");
+const resultSummaryPanel = document.getElementById("resultSummaryPanel");
+const resultSummaryGrid = document.getElementById("resultSummaryGrid");
+const printResultButton = document.getElementById("printResultButton");
 
 let currentUser = null;
 let currentProfile = null;
@@ -80,14 +87,21 @@ let availableParticipantSearchTerm = "";
 let currentParticipantPage = 1;
 let availableParticipantPage = 1;
 const MANAGE_PAGE_SIZE = 5;
+let presenceUnsubscribe = null;
+let presenceHeartbeat = null;
+let presenceMap = new Map();
+let lastSeenActionId = "";
+let autoCloseTimer = null;
 
 const roleLabel = (value) => ({
   super_admin: "최고관리자",
   admin: "관리자",
+  developer: "개발자",
   user: "일반사용자"
 }[value] || value);
 
-const isManager = (profile) => ["super_admin", "admin"].includes(profile?.role);
+const isManager = (profile) => ["super_admin", "admin", "developer"].includes(profile?.role);
+const isDeveloper = (profile) => profile?.role === "developer";
 const isClosedRoom = () => roomData?.status === "closed";
 const isOwner = () => roomData?.ownerUid === currentUser?.uid && (archiveMode || membership?.role === "owner");
 const canWriteBoard = () => access === "write" && !archiveMode && !isClosedRoom();
@@ -120,7 +134,7 @@ async function loadProfile(user) {
   const profile = snap.data();
   if (profile.status !== "approved") throw new Error("승인되지 않았거나 사용중지된 계정입니다.");
 
-  const resolvedAccess = isManager(profile) ? "write" : (profile.bingoAccess || "none");
+  const resolvedAccess = (isManager(profile) || isDeveloper(profile)) ? "write" : (profile.bingoAccess || "none");
   if (resolvedAccess === "none") throw new Error("빙고에 접근할 권한이 없습니다.");
 
   return { uid: user.uid, ...profile, resolvedAccess };
@@ -188,13 +202,205 @@ async function loadBoardImage() {
 }
 
 function roomBoardTypeLabel() {
-  return roomData?.boardType === "alphabet" ? "알파벳 빙고" : "숫자 빙고";
+  if (roomData?.boardType === "alphabet") return "알파벳 빙고";
+  if (roomData?.boardType === "text") return "자유 텍스트 빙고";
+  return "숫자 빙고";
 }
 
 function cellDisplayValue(index) {
-  if (roomData?.boardType !== "alphabet") return String(index + 1);
+  if (roomData?.boardType === "number" || !roomData?.boardType) return String(index + 1);
   const value = boardData?.cellValues?.[index];
-  return typeof value === "string" && /^[A-Z]$/.test(value) ? value : "?";
+  if (roomData?.boardType === "alphabet") return typeof value === "string" && /^[A-Z]$/.test(value) ? value : "?";
+  return typeof value === "string" && value.trim() ? value.trim() : "?";
+}
+
+
+function formatDateTime(value) {
+  const date = value?.toDate?.() || (value instanceof Date ? value : null);
+  if (!date) return "-";
+  return new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+}
+
+function makeBoardAction(type, detail) {
+  return {
+    id: `${currentUser?.uid || "user"}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    type,
+    actorUid: currentUser?.uid || "",
+    actorName: currentProfile?.name || currentUser?.displayName || currentUser?.email || "사용자",
+    detail: String(detail || "").slice(0, 80),
+    atMs: Date.now()
+  };
+}
+
+function showRoomToast(text) {
+  let toast = document.getElementById("roomRealtimeToast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "roomRealtimeToast";
+    toast.className = "room-realtime-toast hidden";
+    toast.setAttribute("role", "status");
+    document.body.appendChild(toast);
+  }
+  toast.textContent = text;
+  toast.classList.remove("hidden");
+  clearTimeout(showRoomToast.timer);
+  showRoomToast.timer = setTimeout(() => toast.classList.add("hidden"), 2300);
+}
+
+function actionText(action) {
+  if (!action) return "";
+  const actor = action.actorName || "다른 사용자";
+  if (action.type === "cell_check") return `${actor}님이 ${action.detail} 칸을 변경했습니다.`;
+  if (action.type === "select_all") return `${actor}님이 빙고판 전체를 선택했습니다.`;
+  if (action.type === "clear_all") return `${actor}님이 빙고판 전체를 해제했습니다.`;
+  if (action.type === "undo") return `${actor}님이 전체 작업을 되돌렸습니다.`;
+  if (action.type === "chicken") return `${actor}님이 치킨 수량을 ${action.detail} 변경했습니다.`;
+  return `${actor}님이 빙고방을 변경했습니다.`;
+}
+
+async function writeRoomAudit(action, detail = "") {
+  try {
+    await addDoc(collection(db, "roomAuditLogs"), {
+      actorUid: currentUser.uid,
+      actorName: currentProfile.name || currentUser.email || "사용자",
+      action,
+      roomId,
+      roomName: roomData?.name || "빙고방",
+      detail: String(detail).slice(0, 500),
+      createdAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error("빙고방 이력 저장 실패", error);
+  }
+}
+
+function renderResultSummary() {
+  if (!resultSummaryPanel || !resultSummaryGrid) return;
+  const closed = isClosedRoom();
+  resultSummaryPanel.classList.toggle("hidden", !closed);
+  if (!closed) return;
+  const progress = getBoardProgress();
+  resultSummaryGrid.innerHTML = `
+    <div><span>빙고 종류</span><strong>${escapeHtml(roomBoardTypeLabel())}</strong></div>
+    <div><span>빙고판</span><strong>${roomData.size} × ${roomData.size}</strong></div>
+    <div><span>완성 빙고</span><strong>${progress.completed}줄</strong></div>
+    <div><span>체크된 칸</span><strong>${progress.checked} / ${progress.total}</strong></div>
+    <div><span>총 치킨</span><strong>${progress.chicken}치킨</strong></div>
+    <div><span>참가자</span><strong>${(roomData.participantUids?.length || 0) + 1}명</strong></div>
+    <div><span>시작</span><strong>${escapeHtml(formatDateTime(roomData.createdAt))}</strong></div>
+    <div><span>종료</span><strong>${escapeHtml(formatDateTime(roomData.closedAt))}</strong></div>
+  `;
+}
+
+function inviteUrl() {
+  const url = new URL("./bingo.html", location.href);
+  url.hash = `invite=${roomId}`;
+  return url.toString();
+}
+
+async function openInviteModal() {
+  if (!roomId || !isOwner() || isClosedRoom()) return;
+  let modal = document.getElementById("roomInviteModal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "roomInviteModal";
+    modal.className = "update-news-modal hidden";
+    modal.innerHTML = `
+      <div class="update-news-backdrop" data-close-invite></div>
+      <section class="invite-dialog" role="dialog" aria-modal="true" aria-label="빙고방 초대">
+        <div class="invite-head"><div><p class="eyebrow">INVITE</p><h2>빙고방 초대</h2><p>승인된 사용자는 링크 또는 QR 코드로 이 방에 참가할 수 있습니다.</p></div><button class="modal-close-button" data-close-invite type="button">×</button></div>
+        <div class="invite-body">
+          <canvas id="inviteQrCanvas" width="220" height="220"></canvas>
+          <div class="invite-link-row"><input id="inviteLinkInput" readonly /><button id="copyInviteLinkButton" type="button">링크 복사</button></div>
+          <p class="muted">최대 참가자 수는 방장을 제외하고 20명입니다.</p>
+        </div>
+      </section>`;
+    document.body.appendChild(modal);
+    modal.querySelectorAll("[data-close-invite]").forEach((el) => el.addEventListener("click", () => modal.classList.add("hidden")));
+    modal.querySelector("#copyInviteLinkButton").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(inviteUrl()); showRoomToast("초대 링크를 복사했습니다."); }
+      catch (_) { modal.querySelector("#inviteLinkInput").select(); document.execCommand("copy"); showRoomToast("초대 링크를 복사했습니다."); }
+    });
+  }
+  modal.querySelector("#inviteLinkInput").value = inviteUrl();
+  modal.classList.remove("hidden");
+  try {
+    const QRCode = await import("https://cdn.jsdelivr.net/npm/qrcode@1.5.4/+esm");
+    await QRCode.toCanvas(modal.querySelector("#inviteQrCanvas"), inviteUrl(), { width: 220, margin: 1 });
+  } catch (error) {
+    console.error("QR 코드 생성 실패", error);
+    const canvas = modal.querySelector("#inviteQrCanvas");
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillText("QR 코드를 불러오지 못했습니다.", 20, 110);
+  }
+}
+
+function isPresenceOnline(item) {
+  const millis = item?.lastSeen?.toMillis?.() || 0;
+  return millis > Date.now() - 5 * 60 * 1000;
+}
+
+function renderPresence() {
+  if (!roomPresenceSummary || !roomData) return;
+  const allowedUids = new Set([roomData.ownerUid, ...(roomData.participantUids || [])]);
+  const online = [...presenceMap.entries()].filter(([uid, item]) => allowedUids.has(uid) && isPresenceOnline(item));
+  roomPresenceSummary.textContent = `접속 중 ${online.length}명 · 전체 ${(roomData.participantUids?.length || 0) + 1}명`;
+  renderManageUsers();
+}
+
+async function touchPresence() {
+  if (!roomId || !currentUser || isClosedRoom()) return;
+  try {
+    await setDoc(doc(db, "bingoRooms", roomId, "presence", currentUser.uid), {
+      uid: currentUser.uid,
+      name: currentProfile.name || currentUser.email || "사용자",
+      lastSeen: serverTimestamp()
+    }, { merge: true });
+  } catch (error) {
+    console.error("접속 상태 갱신 실패", error);
+  }
+}
+
+function startPresence() {
+  presenceUnsubscribe?.();
+  clearInterval(presenceHeartbeat);
+  if (!roomId || isClosedRoom()) {
+    presenceMap = new Map();
+    renderPresence();
+    return;
+  }
+  touchPresence();
+  presenceHeartbeat = setInterval(touchPresence, 180000);
+  presenceUnsubscribe = onSnapshot(collection(db, "bingoRooms", roomId, "presence"), (snap) => {
+    presenceMap = new Map(snap.docs.map((item) => [item.id, item.data()]));
+    renderPresence();
+  }, (error) => console.error("접속 상태 조회 실패", error));
+}
+
+function scheduleAutoClose() {
+  clearTimeout(autoCloseTimer);
+  if (!roomData || isClosedRoom() || !roomData.autoCloseAt?.toMillis) return;
+  const delay = roomData.autoCloseAt.toMillis() - Date.now();
+  if (delay <= 0) {
+    attemptAutoClose();
+    return;
+  }
+  autoCloseTimer = setTimeout(attemptAutoClose, Math.min(delay, 2147483647));
+}
+
+async function attemptAutoClose() {
+  if (!roomData || isClosedRoom() || !roomData.autoCloseAt?.toMillis || roomData.autoCloseAt.toMillis() > Date.now()) return;
+  try {
+    await updateDoc(doc(db, "bingoRooms", roomId), {
+      status: "closed",
+      closedAt: serverTimestamp(),
+      closedByUid: "AUTO",
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error("자동 종료 처리 실패", error);
+  }
 }
 
 function renderRoomHeader() {
@@ -221,6 +427,13 @@ function renderRoomHeader() {
       });
       roomActions.appendChild(manageButton);
 
+      const inviteButton = document.createElement("button");
+      inviteButton.type = "button";
+      inviteButton.className = "secondary";
+      inviteButton.textContent = "초대 링크 / QR";
+      inviteButton.addEventListener("click", openInviteModal);
+      roomActions.appendChild(inviteButton);
+
       const closeButton = document.createElement("button");
       closeButton.type = "button";
       closeButton.className = "secondary room-close-button";
@@ -243,6 +456,9 @@ function renderRoomHeader() {
     leaveButton.addEventListener("click", leaveRoom);
     roomActions.appendChild(leaveButton);
   }
+  renderResultSummary();
+  renderPresence();
+  scheduleAutoClose();
 }
 
 function getCellBackgroundPosition(index, size) {
@@ -346,6 +562,7 @@ async function setAllCells(checked) {
   }
 
   let previousCheckedCells = null;
+  window.CHURANG_SET_SAVE_STATUS?.("saving");
   try {
     await runTransaction(db, async (transaction) => {
       const boardSnap = await transaction.get(boardRef);
@@ -353,14 +570,17 @@ async function setAllCells(checked) {
       previousCheckedCells = { ...(boardSnap.data().checkedCells || {}) };
       transaction.update(boardRef, {
         checkedCells: nextCheckedCells,
+        lastAction: makeBoardAction(checked ? "select_all" : "clear_all", ""),
         updatedAt: serverTimestamp()
       });
     });
     lastBoardUndo = { before: previousCheckedCells || {}, after: nextCheckedCells };
     renderBoardStatus();
+    window.CHURANG_SET_SAVE_STATUS?.("saved");
     setMessage(checked ? "전체 칸을 선택했습니다. 실행 취소로 되돌릴 수 있습니다." : "전체 칸을 해제했습니다. 실행 취소로 되돌릴 수 있습니다.", true);
   } catch (error) {
     console.error(error);
+    window.CHURANG_SET_SAVE_STATUS?.("error");
     setMessage(firebaseErrorMessage(error, checked ? "전체 선택에 실패했습니다." : "전체 해제에 실패했습니다."));
   }
 }
@@ -378,6 +598,7 @@ async function undoLastBoardChange() {
       if (!mapsEqual(current, undo.after)) throw new Error("BOARD_CHANGED");
       transaction.update(boardRef, {
         checkedCells: undo.before,
+        lastAction: makeBoardAction("undo", ""),
         updatedAt: serverTimestamp()
       });
     });
@@ -412,6 +633,7 @@ async function changeChickenCount(delta) {
 
       transaction.update(boardRef, {
         chickenCount: next,
+        lastAction: makeBoardAction("chicken", delta > 0 ? "+1" : "-1"),
         updatedAt: serverTimestamp()
       });
       transaction.set(logRef, {
@@ -452,6 +674,7 @@ function renderBoard() {
   bingoBoard.style.setProperty("--bingo-cell-size", `${cellSize}px`);
   bingoBoard.classList.toggle("image-mode", Boolean(boardImageUrl));
   bingoBoard.classList.toggle("alphabet-board", roomData?.boardType === "alphabet");
+  bingoBoard.classList.toggle("text-board", roomData?.boardType === "text");
 
   const fragment = document.createDocumentFragment();
 
@@ -490,6 +713,7 @@ async function toggleCell(index) {
   const boardRef = doc(db, "bingoBoards", roomId);
   const field = `checkedCells.${index}`;
 
+  window.CHURANG_SET_SAVE_STATUS?.("saving");
   try {
     await runTransaction(db, async (transaction) => {
       const boardSnap = await transaction.get(boardRef);
@@ -499,13 +723,16 @@ async function toggleCell(index) {
       const currentChecked = checkedCells[String(index)] === true;
       transaction.update(boardRef, {
         [field]: !currentChecked,
+        lastAction: makeBoardAction("cell_check", cellDisplayValue(index)),
         updatedAt: serverTimestamp()
       });
     });
     lastBoardUndo = null;
     renderBoardStatus();
+    window.CHURANG_SET_SAVE_STATUS?.("saved");
   } catch (error) {
     console.error(error);
+    window.CHURANG_SET_SAVE_STATUS?.("error");
     setMessage(firebaseErrorMessage(error, "빙고 체크 상태를 저장하지 못했습니다."));
   }
 }
@@ -537,13 +764,13 @@ async function loadManageUsers() {
 
 function canBeParticipant(user) {
   if (!user || user.status !== "approved") return false;
-  if (["super_admin", "admin"].includes(user.role)) return true;
+  if (["super_admin", "admin", "developer"].includes(user.role)) return true;
   return ["read", "write"].includes(user.bingoAccess);
 }
 
 function canOwnRoom(user) {
   if (!user || user.status !== "approved") return false;
-  if (["super_admin", "admin"].includes(user.role)) return true;
+  if (["super_admin", "admin", "developer"].includes(user.role)) return true;
   return user.bingoAccess === "write";
 }
 
@@ -553,7 +780,8 @@ function participantUser(uid) {
 
 function participantStatusText(user) {
   const membershipData = participantMembershipMap.get(user.uid);
-  if (membershipData?.roomId === roomId && membershipData?.role === "participant") return "현재 입장 중";
+  const presence = presenceMap.get(user.uid);
+  if (membershipData?.roomId === roomId && membershipData?.role === "participant") return isPresenceOnline(presence) ? "접속 중" : "현재 참가 중";
   return "초대됨";
 }
 
@@ -724,6 +952,7 @@ async function saveParticipants() {
     participantDraftDirty = false;
     removedUids.forEach((uid) => participantMembershipMap.delete(uid));
     renderManageUsers();
+    await writeRoomAudit("participants_change", `참가자 ${previousUids.length}명 → ${nextUids.length}명`);
     setMessage("참가자 변경사항을 저장했습니다.", true);
   } catch (error) {
     console.error(error);
@@ -786,6 +1015,7 @@ async function transferOwner(targetUser) {
       transaction.update(targetMembershipRef, { role: "owner" });
     });
     participantDraftDirty = false;
+    await writeRoomAudit("owner_transfer", `${targetUser.name || targetUser.email || "참가자"}에게 방장 위임`);
     setMessage("방장을 위임했습니다. 이제 일반 참가자로 이용합니다.", true);
   } catch (error) {
     console.error(error);
@@ -851,6 +1081,7 @@ async function closeRoom() {
     const membershipBatch = writeBatch(db);
     membershipRefs.forEach((ref) => membershipBatch.delete(ref));
     await membershipBatch.commit();
+    await writeRoomAudit("room_close", "빙고방 종료 및 결과 보관");
 
     sessionStorage.removeItem("churangArchiveRoomId");
     location.replace("./bingo.html");
@@ -876,6 +1107,20 @@ async function deleteChickenLogs() {
     const batch = writeBatch(db);
     docs.slice(start, start + 400).forEach((item) => batch.delete(item.ref));
     await batch.commit();
+  }
+}
+
+async function deletePresenceLogs() {
+  try {
+    const snap = await getDocs(collection(db, "bingoRooms", roomId, "presence"));
+    const docs = [...snap.docs];
+    for (let start = 0; start < docs.length; start += 400) {
+      const batch = writeBatch(db);
+      docs.slice(start, start + 400).forEach((item) => batch.delete(item.ref));
+      await batch.commit();
+    }
+  } catch (error) {
+    console.error("접속 상태 정리 실패", error);
   }
 }
 
@@ -919,6 +1164,8 @@ async function deleteRoom() {
     chickenLogsUnsubscribe = null;
 
     await deleteChickenLogs();
+    await deletePresenceLogs();
+    await writeRoomAudit("room_delete", isClosedRoom() ? "보관된 빙고 기록 삭제" : "빙고방 및 연동 데이터 삭제");
     await deleteDoc(doc(db, "bingoBoards", roomId));
     await deleteDoc(doc(db, "bingoRooms", roomId));
 
@@ -1011,7 +1258,11 @@ async function undoChickenLog(log) {
       const current = Math.max(0, Number(boardSnap.data().chickenCount) || 0);
       const next = current - Number(liveLog.delta || 0);
       if (next < 0 || next > 999) throw new Error("COUNT_RANGE");
-      transaction.update(boardRef, { chickenCount: next, updatedAt: serverTimestamp() });
+      transaction.update(boardRef, {
+        chickenCount: next,
+        lastAction: makeBoardAction("chicken", `기록 취소 ${Number(liveLog.delta) > 0 ? "-1" : "+1"}`),
+        updatedAt: serverTimestamp()
+      });
       transaction.update(logRef, {
         reverted: true,
         revertedAt: serverTimestamp(),
@@ -1061,6 +1312,7 @@ function startRealtimeListeners() {
     }
 
     renderRoomHeader();
+    if (isClosedRoom()) { presenceUnsubscribe?.(); clearInterval(presenceHeartbeat); }
     if (isOwner() && access === "write" && !isClosedRoom()) {
       if (!participantDraftDirty) await loadManageUsers();
       else renderManageUsers();
@@ -1075,8 +1327,15 @@ function startRealtimeListeners() {
     if (!snap.exists()) return;
     const nextBoard = snap.data();
     if (lastBoardUndo && !mapsEqual(nextBoard.checkedCells || {}, lastBoardUndo.after)) lastBoardUndo = null;
+    const action = nextBoard.lastAction;
+    if (action?.id && action.id !== lastSeenActionId) {
+      const initial = !lastSeenActionId;
+      lastSeenActionId = action.id;
+      if (!initial && action.actorUid !== currentUser.uid) showRoomToast(actionText(action));
+    }
     boardData = nextBoard;
     renderBoard();
+    renderResultSummary();
   });
 
   chickenLogsUnsubscribe = onSnapshot(collection(db, "bingoRooms", roomId, "chickenLogs"), (snap) => {
@@ -1108,6 +1367,9 @@ increaseChickenButton.addEventListener("click", () => changeChickenCount(1));
 chickenHistoryButton.addEventListener("click", () => chickenHistoryPanel.classList.toggle("hidden"));
 closeChickenHistoryButton.addEventListener("click", () => chickenHistoryPanel.classList.add("hidden"));
 
+printResultButton?.addEventListener("click", () => window.print());
+document.addEventListener("visibilitychange", () => { if (!document.hidden) touchPresence(); });
+
 currentParticipantSearch.addEventListener("input", () => {
   currentParticipantSearchTerm = currentParticipantSearch.value.trim();
   currentParticipantPage = 1;
@@ -1128,6 +1390,9 @@ document.getElementById("logoutButton").addEventListener("click", async () => {
   boardUnsubscribe?.();
   membershipUnsubscribe?.();
   chickenLogsUnsubscribe?.();
+  presenceUnsubscribe?.();
+  clearInterval(presenceHeartbeat);
+  clearTimeout(autoCloseTimer);
   await signOut(auth);
   location.replace("./index.html");
 });
@@ -1151,7 +1416,9 @@ onAuthStateChanged(auth, async (user) => {
     initUserManagementModal(currentProfile);
 
     document.getElementById("userEmail").textContent = user.email || "";
-    document.getElementById("roleBadge").textContent = roleLabel(currentProfile.role);
+    const roleBadge = document.getElementById("roleBadge");
+    roleBadge.textContent = roleLabel(currentProfile.role);
+    roleBadge.dataset.role = currentProfile.role;
 
     await loadRoomAndMembership();
     await loadBoardImage();
@@ -1163,6 +1430,7 @@ onAuthStateChanged(auth, async (user) => {
     loadingPanel.classList.add("hidden");
     roomContent.classList.remove("hidden");
     startRealtimeListeners();
+    startPresence();
   } catch (error) {
     console.error(error);
     sessionStorage.removeItem("churangArchiveRoomId");
