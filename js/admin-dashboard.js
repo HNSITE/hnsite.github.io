@@ -1,8 +1,8 @@
 import { db } from "./firebase-config.js";
 import { collection, getDocs } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
-import { showNotice } from "./ui-dialog.js?v=28";
-import { firebaseErrorMessage } from "./error-messages.js?v=28";
-import { isChannelManager } from "./channel-context.js?v=33";
+import { showNotice } from "./ui-dialog.js?v=34";
+import { firebaseErrorMessage } from "./error-messages.js?v=34";
+import { isChannelManager } from "./channel-context.js?v=34";
 
 let currentProfile = null;
 let currentContext = null;
@@ -21,7 +21,7 @@ function ensureButton() {
   if (!nav) return null;
   button = document.createElement("button");
   button.id = "adminDashboardButton";
-  button.className = "topbar-link";
+  button.className = "topbar-link channel-dashboard-button";
   button.type = "button";
   button.textContent = "채널 현황";
   const email = nav.querySelector(".topbar-email");

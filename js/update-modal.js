@@ -13,8 +13,8 @@ import {
   setDoc,
   where
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
-import { showConfirm, showNotice } from "./ui-dialog.js?v=28";
-import { firebaseErrorMessage } from "./error-messages.js?v=28";
+import { showConfirm, showNotice } from "./ui-dialog.js?v=34";
+import { firebaseErrorMessage } from "./error-messages.js?v=34";
 
 const UPDATE_BADGE_DAYS = 3;
 
@@ -87,7 +87,7 @@ let visibleUpdates = [...fallbackUpdates];
 let initialized = false;
 let editingUpdateId = null;
 
-const isUpdateOwner = () => currentProfile?.status === "approved" && (currentProfile?.platformRole === "developer" || currentProfile?.role === "developer");
+const isUpdateOwner = () => currentProfile?.platformRole === "developer" || currentProfile?.role === "developer";
 
 function escapeHtml(value) {
   return String(value ?? "")

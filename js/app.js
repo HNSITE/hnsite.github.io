@@ -9,19 +9,23 @@ import {
 
 import {
   initAdminDashboard
-} from "./admin-dashboard.js?v=33";
+} from "./admin-dashboard.js?v=34";
 
 import {
   initChannelMemberApproval
-} from "./channel-members.js?v=33";
+} from "./channel-members.js?v=34";
+
+import {
+  initDeveloperChannelTools
+} from "./developer-channel-tools.js?v=34";
 
 import {
   showNotice
-} from "./ui-dialog.js?v=33";
+} from "./ui-dialog.js?v=34";
 
 import {
   firebaseErrorMessage
-} from "./error-messages.js?v=33";
+} from "./error-messages.js?v=34";
 
 import {
   accessLabel,
@@ -31,7 +35,7 @@ import {
   loadCurrentChannelContext,
   loadPlatformProfile,
   resolvedFeatureAccess
-} from "./channel-context.js?v=33";
+} from "./channel-context.js?v=34";
 
 
 const loadingPanel =
@@ -246,6 +250,12 @@ onAuthStateChanged(
           user,
           profile
         );
+
+
+      await initDeveloperChannelTools(
+        user,
+        profile
+      );
 
 
       /*

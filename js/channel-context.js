@@ -9,7 +9,7 @@ import {
 
 
 export const HNSITE_VERSION =
-  "33";
+  "34";
 
 
 export function platformRole(

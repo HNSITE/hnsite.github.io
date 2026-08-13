@@ -35,15 +35,15 @@ import {
   normalizeMemberStatus,
   loadPlatformProfile,
   setCurrentChannelId
-} from "./channel-context.js?v=33";
+} from "./channel-context.js?v=34";
 
 import {
   firebaseErrorMessage
-} from "./error-messages.js?v=33";
+} from "./error-messages.js?v=34";
 
 import {
   showConfirm
-} from "./ui-dialog.js?v=33";
+} from "./ui-dialog.js?v=34";
 
 
 const CHANNEL_PAGE_SIZE = 8;

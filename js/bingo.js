@@ -16,8 +16,10 @@ import {
   writeBatch
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 import { deleteObject, ref as storageRef, uploadBytes } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
-import { BINGO_IMAGE_POLICY, compressBingoImage } from "./image-policy.js?v=28";
-import { firebaseErrorMessage } from "./error-messages.js?v=28";
+import { BINGO_IMAGE_POLICY, compressBingoImage } from "./image-policy.js?v=34";
+import { initChannelMemberApproval } from "./channel-members.js?v=34";
+import { initDeveloperChannelTools } from "./developer-channel-tools.js?v=34";
+import { firebaseErrorMessage } from "./error-messages.js?v=34";
 import {
   accessLabel,
   archiveRoomStorageKey,
@@ -29,7 +31,7 @@ import {
   loadPlatformProfile,
   resolvedFeatureAccess,
   setCurrentChannelId
-} from "./channel-context.js?v=33";
+} from "./channel-context.js?v=34";
 
 const loadingPanel = document.getElementById("loadingPanel");
 const bingoContent = document.getElementById("bingoContent");
@@ -577,6 +579,8 @@ onAuthStateChanged(auth, async (user) => {
     const linkedRoomMatch = location.hash.match(/^#invite=([^:]+):([A-Za-z0-9_-]+)$/);
     if (linkedRoomMatch) setCurrentChannelId(user.uid, linkedRoomMatch[1]);
     currentContext = await loadCurrentChannelContext(user, currentProfile);
+    await initDeveloperChannelTools(user, currentProfile);
+    initChannelMemberApproval(currentContext);
     if (bingoAccess() === "none") throw new Error("이 채널에서 빙고를 이용할 권한이 없습니다.");
     loadFavorites();
     document.getElementById("userEmail").textContent = user.email || "";

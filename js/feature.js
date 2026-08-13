@@ -1,7 +1,9 @@
 import { auth } from "./firebase-config.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
-import { firebaseErrorMessage } from "./error-messages.js?v=28";
-import { displayRole, isDeveloper, loadCurrentChannelContext, loadPlatformProfile, resolvedFeatureAccess } from "./channel-context.js?v=28";
+import { firebaseErrorMessage } from "./error-messages.js?v=34";
+import { initChannelMemberApproval } from "./channel-members.js?v=34";
+import { initDeveloperChannelTools } from "./developer-channel-tools.js?v=34";
+import { displayRole, isDeveloper, loadCurrentChannelContext, loadPlatformProfile, resolvedFeatureAccess } from "./channel-context.js?v=34";
 
 const feature = document.body.dataset.feature;
 const loadingPanel = document.getElementById("loadingPanel");
@@ -12,6 +14,8 @@ onAuthStateChanged(auth, async (user) => {
   try {
     const profile = await loadPlatformProfile(user);
     const context = await loadCurrentChannelContext(user, profile);
+    await initDeveloperChannelTools(user, profile);
+    initChannelMemberApproval(context);
     const access = resolvedFeatureAccess(context, feature === "bingo" ? "bingo" : "kill");
     if (access === "none") throw new Error("이 메뉴에 접근할 권한이 없습니다.");
 

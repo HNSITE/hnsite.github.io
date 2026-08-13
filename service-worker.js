@@ -1,5 +1,5 @@
 const CACHE_NAME =
-  "hnsite-v33";
+  "hnsite-v34";
 
 
 const APP_SHELL = [
@@ -10,7 +10,7 @@ const APP_SHELL = [
   "./bingo.html",
   "./bingo-room.html",
   "./kill.html",
-  "./assets/styles.css?v=33",
+  "./assets/styles.css?v=34",
   "./manifest.webmanifest"
 ];
 
