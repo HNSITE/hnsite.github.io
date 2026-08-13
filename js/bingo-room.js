@@ -145,9 +145,19 @@ async function loadBoardImage() {
   }
 }
 
+function roomBoardTypeLabel() {
+  return roomData?.boardType === "alphabet" ? "알파벳 빙고" : "숫자 빙고";
+}
+
+function cellDisplayValue(index) {
+  if (roomData?.boardType !== "alphabet") return String(index + 1);
+  const value = boardData?.cellValues?.[index];
+  return typeof value === "string" && /^[A-Z]$/.test(value) ? value : "?";
+}
+
 function renderRoomHeader() {
   document.getElementById("roomTitle").textContent = roomData.name || "빙고";
-  document.getElementById("roomMeta").textContent = `${roomData.size} × ${roomData.size} · 방장 ${roomData.ownerName || "-"}`;
+  document.getElementById("roomMeta").textContent = `${roomData.size} × ${roomData.size} · ${roomBoardTypeLabel()} · 방장 ${roomData.ownerName || "-"}`;
   document.getElementById("boardPermission").textContent = `권한: ${access === "write" ? "쓰기" : "읽기"}`;
 
   roomActions.innerHTML = "";
@@ -328,6 +338,7 @@ function renderBoard() {
   bingoBoard.style.setProperty("--bingo-size", size);
   bingoBoard.style.setProperty("--bingo-cell-size", `${minCell}px`);
   bingoBoard.classList.toggle("image-mode", Boolean(boardImageUrl));
+  bingoBoard.classList.toggle("alphabet-board", roomData?.boardType === "alphabet");
 
   const fragment = document.createDocumentFragment();
 
@@ -338,7 +349,8 @@ function renderBoard() {
     cell.className = `bingo-cell${checked ? " checked" : ""}`;
     cell.dataset.index = String(index);
     cell.setAttribute("aria-pressed", checked ? "true" : "false");
-    cell.setAttribute("aria-label", `${index + 1}번 ${checked ? "선택됨" : "선택 안 됨"}`);
+    const displayValue = cellDisplayValue(index);
+    cell.setAttribute("aria-label", `${displayValue} 칸 ${checked ? "선택됨" : "선택 안 됨"}`);
     cell.disabled = !canWriteBoard();
 
     if (checked && boardImageUrl) {
@@ -348,7 +360,7 @@ function renderBoard() {
       cell.style.backgroundPosition = getCellBackgroundPosition(index, size);
       cell.textContent = "";
     } else {
-      cell.innerHTML = `<span class="cell-number">${index + 1}</span>`;
+      cell.innerHTML = `<span class="cell-number">${displayValue}</span>`;
     }
 
     if (canWriteBoard()) {

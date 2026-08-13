@@ -33,6 +33,14 @@ const imageUploadStatus = document.getElementById("imageUploadStatus");
 const participantSearch = document.getElementById("participantSearch");
 const participantSearchCount = document.getElementById("participantSearchCount");
 const participantPagination = document.getElementById("participantPagination");
+const boardTypeSelect = document.getElementById("boardType");
+const roomSizeSelect = document.getElementById("roomSize");
+const alphabetOptions = document.getElementById("alphabetOptions");
+const alphabetModeSelect = document.getElementById("alphabetMode");
+const alphabetModeHelp = document.getElementById("alphabetModeHelp");
+const customAlphabetPanel = document.getElementById("customAlphabetPanel");
+const customAlphabetGrid = document.getElementById("customAlphabetGrid");
+const customAlphabetCount = document.getElementById("customAlphabetCount");
 
 let currentUser = null;
 let currentProfile = null;
@@ -57,6 +65,85 @@ const accessLabel = (value) => ({ none: "권한 없음", read: "읽기", write: 
 function setMessage(text, success = false) {
   lobbyMessage.textContent = text;
   lobbyMessage.classList.toggle("success", success);
+}
+
+const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+
+function boardTypeLabel(room) {
+  return room?.boardType === "alphabet" ? "알파벳 빙고" : "숫자 빙고";
+}
+
+function createRandomAlphabetValues(total) {
+  const values = Array.from({ length: total }, (_, index) => ALPHABET[index % ALPHABET.length]);
+  for (let index = values.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [values[index], values[randomIndex]] = [values[randomIndex], values[index]];
+  }
+  return values;
+}
+
+function normalizeAlphabetValue(value) {
+  return String(value || "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 1);
+}
+
+function renderCustomAlphabetGrid() {
+  const size = Number(roomSizeSelect.value) || 5;
+  const total = size * size;
+  const previousValues = [...customAlphabetGrid.querySelectorAll("input")].map((input) => input.value);
+
+  customAlphabetGrid.innerHTML = "";
+  customAlphabetGrid.style.setProperty("--alphabet-size", size);
+  customAlphabetCount.textContent = `${total}칸`;
+
+  const fragment = document.createDocumentFragment();
+  for (let index = 0; index < total; index += 1) {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "alphabet-cell-input";
+    input.maxLength = 1;
+    input.inputMode = "text";
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.setAttribute("aria-label", `${index + 1}번 칸 알파벳`);
+    input.value = normalizeAlphabetValue(previousValues[index]);
+    input.addEventListener("input", () => {
+      input.value = normalizeAlphabetValue(input.value);
+      input.classList.remove("invalid");
+    });
+    fragment.appendChild(input);
+  }
+  customAlphabetGrid.appendChild(fragment);
+}
+
+function updateAlphabetOptions() {
+  const isAlphabet = boardTypeSelect.value === "alphabet";
+  const isCustom = isAlphabet && alphabetModeSelect.value === "custom";
+
+  alphabetOptions.classList.toggle("hidden", !isAlphabet);
+  customAlphabetPanel.classList.toggle("hidden", !isCustom);
+  alphabetModeHelp.textContent = alphabetModeSelect.value === "custom"
+    ? "직접 지정한 알파벳이 모든 참가자에게 같은 순서로 표시됩니다."
+    : "A~Z를 섞어 배치합니다. 27칸 이상에서는 알파벳이 반복됩니다.";
+
+  if (isCustom) renderCustomAlphabetGrid();
+}
+
+function getCustomAlphabetValues() {
+  const inputs = [...customAlphabetGrid.querySelectorAll("input")];
+  const values = inputs.map((input) => normalizeAlphabetValue(input.value));
+  let firstInvalid = null;
+
+  inputs.forEach((input, index) => {
+    const invalid = !values[index];
+    input.classList.toggle("invalid", invalid);
+    if (invalid && !firstInvalid) firstInvalid = input;
+  });
+
+  if (firstInvalid) {
+    firstInvalid.focus();
+    return null;
+  }
+  return values;
 }
 
 async function loadProfile(user) {
@@ -129,7 +216,7 @@ function renderCurrentRoom() {
     <div>
       <span class="room-state-badge">${roleText}</span>
       <h3>${escapeHtml(room?.name || "현재 빙고방")}</h3>
-      <p>${room?.size || "-"} × ${room?.size || "-"}</p>
+      <p>${room?.size || "-"} × ${room?.size || "-"} · ${boardTypeLabel(room)}</p>
     </div>
     <a class="service-button" href="./bingo-room.html">현재 방으로 이동</a>
   `;
@@ -252,7 +339,7 @@ function renderRoomList() {
       <div class="bingo-room-item-main">
         <span class="room-state-badge">${roomStatusText(room)}</span>
         <h3>${escapeHtml(room.name)}</h3>
-        <p>${room.size} × ${room.size} · 초대 ${room.participantUids?.length || 0}명</p>
+        <p>${room.size} × ${room.size} · ${boardTypeLabel(room)} · 초대 ${room.participantUids?.length || 0}명</p>
       </div>
       <div class="bingo-room-item-action">${actionHtml}</div>
     `;
@@ -371,7 +458,11 @@ async function createRoom(event) {
   }
 
   const name = document.getElementById("roomName").value.trim();
-  const size = Number(document.getElementById("roomSize").value);
+  const size = Number(roomSizeSelect.value);
+  const boardType = boardTypeSelect.value === "alphabet" ? "alphabet" : "number";
+  const alphabetMode = boardType === "alphabet"
+    ? (alphabetModeSelect.value === "custom" ? "custom" : "random")
+    : "none";
   const imageFile = roomImage.files?.[0] || null;
   const participantUids = [...selectedParticipantUids];
 
@@ -384,6 +475,19 @@ async function createRoom(event) {
   if (!allowedSizes.includes(size)) {
     setMessage("올바른 빙고판 크기를 선택해주세요.");
     return;
+  }
+
+  let cellValues = [];
+  if (boardType === "alphabet") {
+    if (alphabetMode === "custom") {
+      cellValues = getCustomAlphabetValues();
+      if (!cellValues) {
+        setMessage("알파벳 직접 지정 칸을 모두 입력해주세요.");
+        return;
+      }
+    } else {
+      cellValues = createRandomAlphabetValues(size * size);
+    }
   }
 
   createRoomButton.disabled = true;
@@ -418,6 +522,8 @@ async function createRoom(event) {
         ownerUid: currentUser.uid,
         ownerName: currentProfile.name || currentUser.displayName || currentUser.email || "방장",
         size,
+        boardType,
+        alphabetMode,
         participantUids,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
@@ -427,6 +533,7 @@ async function createRoom(event) {
         checkedCells: {},
         imagePath: "",
         chickenCount: 0,
+        cellValues,
         updatedAt: serverTimestamp()
       });
     });
@@ -529,6 +636,14 @@ document.getElementById("refreshRoomsButton").addEventListener("click", async ()
 });
 
 
+boardTypeSelect.addEventListener("change", updateAlphabetOptions);
+alphabetModeSelect.addEventListener("change", updateAlphabetOptions);
+roomSizeSelect.addEventListener("change", () => {
+  if (boardTypeSelect.value === "alphabet" && alphabetModeSelect.value === "custom") {
+    renderCustomAlphabetGrid();
+  }
+});
+
 participantSearch.addEventListener("input", () => {
   participantSearchTerm = participantSearch.value.trim();
   participantPage = 1;
@@ -555,6 +670,8 @@ document.getElementById("logoutButton").addEventListener("click", async () => {
   await signOut(auth);
   location.replace("./index.html");
 });
+
+updateAlphabetOptions();
 
 onAuthStateChanged(auth, async (user) => {
   if (!user) {

@@ -1,7 +1,15 @@
 const UPDATE_STORAGE_KEY = "churang:last-read-update";
-const LATEST_UPDATE_KEY = "2026-08-13-v19";
+const LATEST_UPDATE_KEY = "2026-08-13-v23";
 
 const updates = [
+  {
+    date: "2026.08.13",
+    title: "알파벳 빙고가 추가됐어요",
+    items: [
+      "빙고방 생성 시 숫자 빙고와 알파벳 빙고를 선택할 수 있습니다.",
+      "알파벳은 무작위 배치 또는 직접 지정할 수 있으며, 직접 지정할 때 같은 알파벳을 여러 번 사용할 수 있습니다."
+    ]
+  },
   {
     date: "2026.08.13",
     title: "빙고가 더 편리해졌어요",
