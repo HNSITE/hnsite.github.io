@@ -13,8 +13,7 @@ import {
   doc,
   getDoc,
   serverTimestamp,
-  setDoc,
-  updateDoc
+  setDoc
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
 
@@ -76,10 +75,9 @@ function setBusy(
 
 
   const label =
-    googleLoginButton
-      .querySelector(
-        "span:last-child"
-      );
+    googleLoginButton.querySelector(
+      "span:last-child"
+    );
 
 
   if (label) {
@@ -116,75 +114,16 @@ async function ensureUserProfile(
 
   /*
    * 기존 사용자
+   *
+   * 로그인할 때 기존 사용자 문서는
+   * 절대 수정하지 않는다.
+   *
+   * role / platformRole / status 등의
+   * 기존 권한 정보도 그대로 유지한다.
    */
   if (
     snapshot.exists()
   ) {
-
-    const data =
-      snapshot.data();
-
-
-    const developer =
-      data.platformRole ===
-        "developer" ||
-      data.role ===
-        "developer";
-
-
-    const patch = {
-      updatedAt:
-        serverTimestamp()
-    };
-
-
-    if (
-      !data.name &&
-      user.displayName
-    ) {
-
-      patch.name =
-        user.displayName;
-    }
-
-
-    if (
-      !data.email &&
-      user.email
-    ) {
-
-      patch.email =
-        user.email;
-    }
-
-
-    if (
-      !data.platformRole
-    ) {
-
-      patch.platformRole =
-        developer
-          ? "developer"
-          : "user";
-    }
-
-
-    if (
-      !data.role
-    ) {
-
-      patch.role =
-        developer
-          ? "developer"
-          : "user";
-    }
-
-
-    await updateDoc(
-      userRef,
-      patch
-    );
-
 
     return;
   }
@@ -211,10 +150,6 @@ async function ensureUserProfile(
       role:
         "user",
 
-      /*
-       * 기존 코드 호환용 필드.
-       * 플랫폼 수동 승인에는 사용하지 않는다.
-       */
       status:
         "approved",
 
@@ -229,7 +164,7 @@ async function ensureUserProfile(
 
 
 /* =========================================================
-   이동
+   로그인 완료 이동
 ========================================================= */
 
 async function handleUser(
@@ -261,6 +196,7 @@ onAuthStateChanged(
       !user ||
       busy
     ) {
+
       return;
     }
 
@@ -301,83 +237,101 @@ onAuthStateChanged(
    Google 로그인
 ========================================================= */
 
-googleLoginButton
-  .addEventListener(
-    "click",
-    async () => {
+googleLoginButton.addEventListener(
+  "click",
+  async () => {
 
-      if (busy) {
-        return;
-      }
+    if (
+      busy
+    ) {
+
+      return;
+    }
 
 
-      setBusy(
-        true
+    setBusy(
+      true
+    );
+
+
+    setMessage(
+      ""
+    );
+
+
+    try {
+
+      const result =
+        await signInWithPopup(
+          auth,
+          provider
+        );
+
+
+      await handleUser(
+        result.user
+      );
+
+    } catch (error) {
+
+      console.error(
+        "Google 로그인 실패",
+        error
       );
 
 
-      setMessage("");
+      let text =
+        "Google 로그인에 실패했습니다. 다시 시도해주세요.";
 
 
-      try {
+      if (
+        error.code ===
+        "auth/popup-closed-by-user"
+      ) {
 
-        const result =
-          await signInWithPopup(
-            auth,
-            provider
-          );
+        text =
+          "Google 로그인 창이 닫혔습니다.";
 
+      } else if (
+        error.code ===
+        "auth/popup-blocked"
+      ) {
 
-        await handleUser(
-          result.user
-        );
+        text =
+          "브라우저에서 팝업이 차단되었습니다. 팝업을 허용해주세요.";
 
-      } catch (error) {
+      } else if (
+        error.code ===
+        "auth/unauthorized-domain"
+      ) {
 
-        console.error(
-          "Google 로그인 실패",
-          error
-        );
+        text =
+          "현재 사이트 주소가 Firebase 승인 도메인에 등록되지 않았습니다.";
 
+      } else if (
+        error.code ===
+        "permission-denied" ||
+        String(
+          error.message ||
+          ""
+        ).includes(
+          "Missing or insufficient permissions"
+        )
+      ) {
 
-        let text =
-          "Google 로그인에 실패했습니다. 다시 시도해주세요.";
-
-
-        if (
-          error.code ===
-          "auth/popup-closed-by-user"
-        ) {
-
-          text =
-            "Google 로그인 창이 닫혔습니다.";
-
-        } else if (
-          error.code ===
-          "auth/popup-blocked"
-        ) {
-
-          text =
-            "브라우저에서 팝업이 차단되었습니다. 팝업을 허용해주세요.";
-
-        } else if (
-          error.code ===
-          "auth/unauthorized-domain"
-        ) {
-
-          text =
-            "현재 사이트 주소가 Firebase 승인 도메인에 등록되지 않았습니다.";
-        }
-
-
-        setMessage(
-          text
-        );
-
-
-        setBusy(
-          false
-        );
+        text =
+          "Firestore 사용자 정보를 확인할 권한이 없습니다.";
       }
+
+
+      setMessage(
+        text
+      );
+
+
+      setBusy(
+        false
+      );
     }
-  );
+  }
+);
