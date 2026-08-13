@@ -17,11 +17,13 @@ import {
 
 const PAGE_SIZE = 10;
 
-let currentContext = null;
+let defaultContext = null;
+let activeContext = null;
 let members = [];
 let activeTab = "pending";
 let page = 1;
-let unsubscribe = null;
+let badgeUnsubscribe = null;
+let modalUnsubscribe = null;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -41,7 +43,8 @@ function approvedMembers() {
 }
 
 function ensureButton() {
-  if (!isChannelManager(currentContext)) return null;
+  if (!isChannelManager(defaultContext)) return null;
+
   let button = document.getElementById("channelMemberApprovalButton");
   if (button) return button;
 
@@ -135,37 +138,20 @@ function renderTabs() {
   });
 }
 
-function setCounts() {
+function updateModalCounts() {
   const pending = pendingMembers().length;
   const approved = approvedMembers().length;
-
-  const badge = document.getElementById("channelMemberPendingBadge");
-  if (badge) {
-    badge.textContent = pending > 99 ? "99+" : String(pending);
-    badge.classList.toggle("hidden", pending === 0);
-  }
-
   const pendingCount = document.getElementById("channelPendingTabCount");
-  if (pendingCount) pendingCount.textContent = String(pending);
   const approvedCount = document.getElementById("channelApprovedTabCount");
+  if (pendingCount) pendingCount.textContent = String(pending);
   if (approvedCount) approvedCount.textContent = String(approved);
 }
 
-function openModal() {
-  if (!isChannelManager(currentContext)) return;
-  const modal = ensureModal();
-  activeTab = "pending";
-  page = 1;
-  renderTabs();
-  document.getElementById("channelMemberApprovalMessage").textContent = "";
-  modal.classList.remove("hidden");
-  document.body.classList.add("modal-open");
-  render();
-}
-
-function closeModal() {
-  document.getElementById("channelMemberApprovalModal")?.classList.add("hidden");
-  document.body.classList.remove("modal-open");
+function setTopbarBadge(count) {
+  const badge = document.getElementById("channelMemberPendingBadge");
+  if (!badge) return;
+  badge.textContent = count > 99 ? "99+" : String(count);
+  badge.classList.toggle("hidden", count === 0);
 }
 
 function currentItems() {
@@ -189,6 +175,7 @@ function renderPendingItem(member) {
     const button = event.currentTarget;
     button.disabled = true;
     button.textContent = "승인 중...";
+
     try {
       await approveMember(member);
       const message = document.getElementById("channelMemberApprovalMessage");
@@ -226,7 +213,7 @@ function renderApprovedItem(member) {
     kickButton.addEventListener("click", async () => {
       const name = member.name || member.email || "선택한 사용자";
       const confirmed = await showConfirm(
-        `${name}님을 이 채널에서 추방할까요?`,
+        `${name}님을 이 채널에서 추방할까요? 진행 중인 빙고방의 방장이라면 해당 방은 자동 종료됩니다.`,
         {
           title: "채널 사용자 추방",
           confirmText: "추방",
@@ -266,6 +253,7 @@ function render() {
   const pagination = document.getElementById("channelMemberApprovalPagination");
   if (!list || !pagination) return;
 
+  updateModalCounts();
   const items = currentItems();
   list.innerHTML = "";
 
@@ -296,14 +284,13 @@ function render() {
   document.getElementById("channelMemberApprovalNext").disabled = page >= totalPages;
 }
 
-
 async function kickMember(member) {
   if (member.role === "owner") {
     throw new Error("채널 소유자는 추방할 수 없습니다.");
   }
 
-  const channelId = currentContext.channelId;
-  const actorUid = currentContext.profile?.uid || "";
+  const channelId = activeContext.channelId;
+  const actorUid = activeContext.profile?.uid || activeContext.member?.uid || "";
   const roomsSnapshot = await getDocs(
     collection(db, "channels", channelId, "bingoRooms")
   );
@@ -337,7 +324,12 @@ async function kickMember(member) {
       }
     }
 
-    if ((room.participantUids || []).includes(member.uid)) {
+    // 종료된 방은 과거 기록이므로 참가자 목록을 수정하지 않는다.
+    if (
+      room.status !== "closed" &&
+      room.ownerUid !== member.uid &&
+      (room.participantUids || []).includes(member.uid)
+    ) {
       updates.participantUids = arrayRemove(member.uid);
       updates.updatedAt = serverTimestamp();
     }
@@ -353,15 +345,15 @@ async function kickMember(member) {
 }
 
 async function approveMember(member) {
-  const channelId = currentContext.channelId;
+  const channelId = activeContext.channelId;
   const memberRef = doc(db, "channels", channelId, "members", member.uid);
   const mirrorRef = doc(db, "users", member.uid, "memberships", channelId);
   const batch = writeBatch(db);
 
   batch.update(memberRef, {
     status: "approved",
-    bingoAccess: currentContext.channel.bingoEnabled === true ? "write" : "none",
-    killSheetAccess: currentContext.channel.killEnabled === true ? "write" : "none",
+    bingoAccess: activeContext.channel.bingoEnabled === true ? "write" : "none",
+    killSheetAccess: activeContext.channel.killEnabled === true ? "write" : "none",
     joinedAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
@@ -375,11 +367,18 @@ async function approveMember(member) {
   await batch.commit();
 }
 
-function startWatcher() {
-  if (unsubscribe || !isChannelManager(currentContext)) return;
+function stopModalWatcher() {
+  if (!modalUnsubscribe) return;
+  modalUnsubscribe();
+  modalUnsubscribe = null;
+}
 
-  unsubscribe = onSnapshot(
-    collection(db, "channels", currentContext.channelId, "members"),
+function startModalWatcher(context) {
+  stopModalWatcher();
+  activeContext = context;
+
+  modalUnsubscribe = onSnapshot(
+    collection(db, "channels", context.channelId, "members"),
     (snapshot) => {
       members = snapshot.docs
         .map((item) => ({
@@ -390,23 +389,97 @@ function startWatcher() {
         .filter((member) => ["pending", "approved"].includes(member.status))
         .sort((a, b) => (a.name || a.email || "").localeCompare(b.name || b.email || "", "ko"));
 
-      setCounts();
-      if (!document.getElementById("channelMemberApprovalModal")?.classList.contains("hidden")) render();
+      render();
     },
     (error) => console.error("채널 사용자 조회 실패", error)
   );
 }
 
+function openModalForContext(context) {
+  if (!isChannelManager(context)) return;
+
+  const modal = ensureModal();
+  activeContext = context;
+  activeTab = "pending";
+  page = 1;
+  renderTabs();
+
+  const channelName = context.channel?.name || "채널";
+  document.getElementById("channelMemberApprovalTitle").textContent = `${channelName} · 사용자 관리`;
+  const message = document.getElementById("channelMemberApprovalMessage");
+  message.textContent = "";
+  message.classList.remove("success");
+
+  members = [];
+  modal.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  render();
+  startModalWatcher(context);
+}
+
+function closeModal() {
+  document.getElementById("channelMemberApprovalModal")?.classList.add("hidden");
+  stopModalWatcher();
+  activeContext = defaultContext;
+
+  const globalManagement =
+    document.getElementById("globalChannelManagementModal");
+
+  document.body.classList.toggle(
+    "modal-open",
+    Boolean(
+      globalManagement &&
+      !globalManagement.classList.contains("hidden")
+    )
+  );
+}
+
+function startDefaultBadgeWatcher() {
+  if (badgeUnsubscribe || !isChannelManager(defaultContext)) return;
+
+  badgeUnsubscribe = onSnapshot(
+    collection(db, "channels", defaultContext.channelId, "members"),
+    (snapshot) => {
+      const pending = snapshot.docs.filter(
+        (item) => normalizeMemberStatus(item.data().status) === "pending"
+      ).length;
+      setTopbarBadge(pending);
+    },
+    (error) => console.error("채널 가입 대기 조회 실패", error)
+  );
+}
+
 export function initChannelMemberApproval(context) {
-  currentContext = context;
-  if (!isChannelManager(currentContext)) return;
+  defaultContext = context;
+  activeContext = context;
+  if (!isChannelManager(defaultContext)) return;
 
   const button = ensureButton();
   if (button && !button.dataset.bound) {
     button.dataset.bound = "1";
-    button.addEventListener("click", openModal);
+    button.addEventListener("click", () => openModalForContext(defaultContext));
   }
 
   ensureModal();
-  startWatcher();
+  startDefaultBadgeWatcher();
+}
+
+export function openChannelMemberManagement(channel, profile) {
+  if (!channel?.id || !profile) return;
+
+  const context = {
+    profile,
+    channelId: channel.id,
+    channel,
+    member: {
+      uid: profile.uid || "",
+      role: "developer",
+      status: "approved",
+      bingoAccess: "write",
+      killSheetAccess: "write",
+      virtualDeveloper: true
+    }
+  };
+
+  openModalForContext(context);
 }

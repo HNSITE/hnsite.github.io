@@ -8,6 +8,7 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  Timestamp,
   updateDoc,
   where,
   writeBatch
@@ -17,11 +18,14 @@ import {
   listAll,
   ref as storageRef
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
-import { isDeveloper } from "./channel-context.js";
+import { isDeveloper, setCurrentChannelId } from "./channel-context.js";
 import { firebaseErrorMessage } from "./error-messages.js";
 import { showConfirm } from "./ui-dialog.js";
+import { openChannelMemberManagement } from "./channel-members.js";
 
 const REQUEST_PAGE_SIZE = 10;
+const CHANNEL_MANAGE_PAGE_SIZE = 6;
+const MEMBER_BATCH_SIZE = 400;
 
 let currentUser = null;
 let currentProfile = null;
@@ -32,6 +36,10 @@ let pendingRequests = [];
 let requestPage = 1;
 let requestUnsubscribe = null;
 let selectedRequestUid = "";
+let managedChannels = [];
+let channelManageSearch = "";
+let channelManageStatus = "all";
+let channelManagePage = 1;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -47,8 +55,24 @@ function ensureButtons() {
   const nav = document.querySelector(".topbar-user");
   if (!nav) return;
 
+  let manageButton = document.getElementById("globalChannelManagementButton");
+  if (!manageButton) {
+    manageButton = document.createElement("button");
+    manageButton.id = "globalChannelManagementButton";
+    manageButton.className = "topbar-link global-channel-management-button";
+    manageButton.type = "button";
+    manageButton.textContent = "전체 채널 관리";
+
+    const anchor =
+      document.getElementById("openCreateChannelButton") ||
+      document.getElementById("globalCreateChannelButton") ||
+      nav.querySelector(".topbar-email");
+    nav.insertBefore(manageButton, anchor || nav.firstChild);
+  }
+
+  const pageCreateButton = document.getElementById("openCreateChannelButton");
   let createButton = document.getElementById("globalCreateChannelButton");
-  if (!createButton) {
+  if (!pageCreateButton && !createButton) {
     createButton = document.createElement("button");
     createButton.id = "globalCreateChannelButton";
     createButton.className = "channel-create-top-button";
@@ -58,8 +82,9 @@ function ensureButtons() {
     nav.insertBefore(createButton, email || nav.firstChild);
   }
 
+  const pageRequestButton = document.getElementById("openChannelRequestsButton");
   let requestButton = document.getElementById("globalChannelRequestsButton");
-  if (!requestButton) {
+  if (!pageRequestButton && !requestButton) {
     requestButton = document.createElement("button");
     requestButton.id = "globalChannelRequestsButton";
     requestButton.className = "channel-request-admin-button";
@@ -69,28 +94,17 @@ function ensureButtons() {
     nav.insertBefore(requestButton, email || nav.firstChild);
   }
 
-  let settingsButton = document.getElementById("globalChannelSettingsButton");
-  if (currentContext?.channelId && !settingsButton) {
-    settingsButton = document.createElement("button");
-    settingsButton.id = "globalChannelSettingsButton";
-    settingsButton.className = "topbar-link channel-feature-settings-button";
-    settingsButton.type = "button";
-    settingsButton.textContent = "채널 기능 설정";
-    const email = nav.querySelector(".topbar-email");
-    nav.insertBefore(settingsButton, email || nav.firstChild);
+  if (!manageButton.dataset.bound) {
+    manageButton.dataset.bound = "1";
+    manageButton.addEventListener("click", openChannelManagement);
   }
 
-  if (settingsButton && !settingsButton.dataset.bound) {
-    settingsButton.dataset.bound = "1";
-    settingsButton.addEventListener("click", openSettingsModal);
-  }
-
-  if (!createButton.dataset.bound) {
+  if (createButton && !createButton.dataset.bound) {
     createButton.dataset.bound = "1";
     createButton.addEventListener("click", () => openCreateModal());
   }
 
-  if (!requestButton.dataset.bound) {
+  if (requestButton && !requestButton.dataset.bound) {
     requestButton.dataset.bound = "1";
     requestButton.addEventListener("click", openRequestsModal);
   }
@@ -110,7 +124,7 @@ function ensureCreateModal() {
         <div>
           <p class="eyebrow">DEVELOPER</p>
           <h2 id="globalCreateChannelTitle">새 채널 생성</h2>
-          <p class="muted">채널 이름과 소유자를 지정합니다.</p>
+          <p class="muted">채널 이름, 소유자와 사용할 기능을 지정합니다.</p>
         </div>
         <button class="modal-close-button" data-close-global-create type="button" aria-label="닫기">×</button>
       </div>
@@ -138,7 +152,7 @@ function ensureCreateModal() {
               <span>킬내기</span>
             </label>
           </div>
-          <small class="muted">하나 이상 선택해야 하며 두 기능 모두 선택할 수 있습니다.</small>
+          <small class="muted">활성 채널은 하나 이상의 기능을 사용해야 하며 두 기능 모두 선택할 수 있습니다.</small>
         </fieldset>
         <p id="globalCreateChannelMessage" class="message"></p>
         <div class="channel-modal-actions">
@@ -157,136 +171,79 @@ function ensureCreateModal() {
   return modal;
 }
 
-function ensureSettingsModal() {
-  let modal = document.getElementById("globalChannelSettingsModal");
+function ensureChannelManagementModal() {
+  let modal = document.getElementById("globalChannelManagementModal");
   if (modal) return modal;
 
   modal = document.createElement("div");
-  modal.id = "globalChannelSettingsModal";
+  modal.id = "globalChannelManagementModal";
   modal.className = "admin-modal hidden";
   modal.innerHTML = `
-    <div class="admin-modal-backdrop" data-close-global-settings></div>
-    <section class="admin-modal-dialog channel-create-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="globalChannelSettingsTitle">
+    <div class="admin-modal-backdrop" data-close-global-channel-management></div>
+    <section class="admin-modal-dialog global-channel-management-dialog" role="dialog" aria-modal="true" aria-labelledby="globalChannelManagementTitle">
       <div class="admin-modal-header">
         <div>
-          <p class="eyebrow">DEVELOPER</p>
-          <h2 id="globalChannelSettingsTitle">채널 기능 설정</h2>
-          <p id="globalChannelSettingsName" class="muted"></p>
+          <p class="eyebrow">CHANNEL CONTROL</p>
+          <h2 id="globalChannelManagementTitle">전체 채널 관리</h2>
+          <p class="muted">모든 채널의 이용 상태와 제공 기능을 한 곳에서 관리합니다.</p>
         </div>
-        <button class="modal-close-button" data-close-global-settings type="button" aria-label="닫기">×</button>
+        <button class="modal-close-button" data-close-global-channel-management type="button" aria-label="닫기">×</button>
       </div>
-      <form id="globalChannelSettingsForm" class="channel-create-modal-form">
-        <fieldset class="channel-feature-fieldset">
-          <legend>사용 기능</legend>
-          <div class="channel-feature-options">
-            <label class="channel-feature-option">
-              <input id="globalSettingsBingo" type="checkbox" />
-              <span>빙고</span>
-            </label>
-            <label class="channel-feature-option">
-              <input id="globalSettingsKill" type="checkbox" />
-              <span>킬내기</span>
-            </label>
-          </div>
-          <small class="muted">선택한 기능만 이 채널에서 사용할 수 있습니다. 두 기능 모두 선택할 수 있습니다.</small>
-        </fieldset>
-        <p id="globalChannelSettingsMessage" class="message"></p>
-        <div class="channel-modal-actions">
-          <button class="secondary" data-close-global-settings type="button">취소</button>
-          <button id="globalChannelSettingsSubmit" type="submit">저장</button>
+
+      <div class="global-channel-management-toolbar">
+        <input id="globalChannelManageSearch" type="search" placeholder="채널 이름 또는 소유자 검색" autocomplete="off" />
+        <select id="globalChannelManageStatus" aria-label="채널 상태 필터">
+          <option value="all">전체 채널</option>
+          <option value="active">활성</option>
+          <option value="suspended">비활성</option>
+        </select>
+        <div id="globalChannelManageStats" class="global-channel-management-stats"></div>
+      </div>
+
+      <p id="globalChannelManageMessage" class="message admin-modal-message"></p>
+      <div id="globalChannelManageList" class="global-channel-management-list"></div>
+
+      <div id="globalChannelManagePagination" class="channel-pagination global-channel-management-pagination hidden">
+        <span id="globalChannelManageSummary" class="channel-page-summary"></span>
+        <div class="channel-page-buttons">
+          <button id="globalChannelManagePrev" class="secondary" type="button">이전</button>
+          <span id="globalChannelManagePage" class="channel-page-number"></span>
+          <button id="globalChannelManageNext" class="secondary" type="button">다음</button>
         </div>
-      </form>
+      </div>
     </section>`;
 
   document.body.appendChild(modal);
-  modal.querySelectorAll("[data-close-global-settings]").forEach((element) => {
-    element.addEventListener("click", closeSettingsModal);
+
+  modal.querySelectorAll("[data-close-global-channel-management]").forEach((element) => {
+    element.addEventListener("click", closeChannelManagement);
   });
-  modal.querySelector("#globalChannelSettingsForm").addEventListener("submit", saveChannelSettings);
+
+  modal.querySelector("#globalChannelManageSearch").addEventListener("input", (event) => {
+    channelManageSearch = event.target.value.trim();
+    channelManagePage = 1;
+    renderChannelManagement();
+  });
+
+  modal.querySelector("#globalChannelManageStatus").addEventListener("change", (event) => {
+    channelManageStatus = event.target.value;
+    channelManagePage = 1;
+    renderChannelManagement();
+  });
+
+  modal.querySelector("#globalChannelManagePrev").addEventListener("click", () => {
+    if (channelManagePage > 1) {
+      channelManagePage -= 1;
+      renderChannelManagement();
+    }
+  });
+
+  modal.querySelector("#globalChannelManageNext").addEventListener("click", () => {
+    channelManagePage += 1;
+    renderChannelManagement();
+  });
+
   return modal;
-}
-
-function openSettingsModal() {
-  if (!isDeveloper(currentProfile) || !currentContext?.channelId) return;
-  const modal = ensureSettingsModal();
-  modal.querySelector("#globalChannelSettingsName").textContent = currentContext.channel?.name || "현재 채널";
-  modal.querySelector("#globalSettingsBingo").checked = currentContext.channel?.bingoEnabled === true;
-  modal.querySelector("#globalSettingsKill").checked = currentContext.channel?.killEnabled === true;
-  const message = modal.querySelector("#globalChannelSettingsMessage");
-  message.textContent = "";
-  message.classList.remove("success");
-  modal.classList.remove("hidden");
-  document.body.classList.add("modal-open");
-}
-
-function closeSettingsModal() {
-  document.getElementById("globalChannelSettingsModal")?.classList.add("hidden");
-  document.body.classList.remove("modal-open");
-}
-
-async function saveChannelSettings(event) {
-  event.preventDefault();
-  if (!isDeveloper(currentProfile) || !currentContext?.channelId) return;
-
-  const modal = ensureSettingsModal();
-  const bingoEnabled = modal.querySelector("#globalSettingsBingo").checked;
-  const killEnabled = modal.querySelector("#globalSettingsKill").checked;
-  const message = modal.querySelector("#globalChannelSettingsMessage");
-  const submit = modal.querySelector("#globalChannelSettingsSubmit");
-
-  message.textContent = "";
-  message.classList.remove("success");
-
-  if (!bingoEnabled && !killEnabled) {
-    message.textContent = "빙고와 킬내기 중 하나 이상을 선택해주세요.";
-    return;
-  }
-
-  submit.disabled = true;
-  submit.textContent = "저장 중...";
-
-  try {
-    const membersSnapshot = await getDocs(
-      collection(db, "channels", currentContext.channelId, "members")
-    );
-
-    const batch = writeBatch(db);
-    batch.update(
-      doc(db, "channels", currentContext.channelId),
-      {
-        bingoEnabled,
-        killEnabled,
-        updatedAt: serverTimestamp()
-      }
-    );
-
-    membersSnapshot.docs.forEach((memberDoc) => {
-      const member = memberDoc.data();
-      const approved = ["approved", "active"].includes(member.status);
-      batch.update(memberDoc.ref, {
-        bingoAccess: approved && bingoEnabled ? "write" : "none",
-        killSheetAccess: approved && killEnabled ? "write" : "none",
-        updatedAt: serverTimestamp()
-      });
-    });
-
-    await batch.commit();
-
-    currentContext.channel.bingoEnabled = bingoEnabled;
-    currentContext.channel.killEnabled = killEnabled;
-    message.textContent = "채널 사용 기능을 변경했습니다.";
-    message.classList.add("success");
-
-    setTimeout(() => {
-      location.reload();
-    }, 300);
-  } catch (error) {
-    console.error("채널 기능 설정 저장 실패", error);
-    message.textContent = firebaseErrorMessage(error, "채널 기능 설정을 저장하지 못했습니다.");
-  } finally {
-    submit.disabled = false;
-    submit.textContent = "저장";
-  }
 }
 
 function ensureRequestsModal() {
@@ -369,8 +326,11 @@ function renderOwnerOptions(preserveUid = "") {
     option.textContent = `${user.name || user.email || "사용자"} · ${user.email || ""}`;
     select.appendChild(option);
   });
+
   result.textContent = `검색 결과 ${filtered.length}명`;
-  if (preserveUid && filtered.some((user) => user.uid === preserveUid)) select.value = preserveUid;
+  if (preserveUid && filtered.some((user) => user.uid === preserveUid)) {
+    select.value = preserveUid;
+  }
 }
 
 async function openCreateModal(ownerUid = "") {
@@ -398,6 +358,8 @@ async function openCreateModal(ownerUid = "") {
     renderOwnerOptions();
   }
 
+  modal.querySelector("#globalChannelFeatureBingo").checked = true;
+  modal.querySelector("#globalChannelFeatureKill").checked = false;
   modal.classList.remove("hidden");
   document.body.classList.add("modal-open");
   requestAnimationFrame(() => modal.querySelector("#globalChannelName")?.focus());
@@ -407,19 +369,6 @@ function closeCreateModal() {
   document.getElementById("globalCreateChannelModal")?.classList.add("hidden");
   document.body.classList.remove("modal-open");
   selectedRequestUid = "";
-}
-
-function openRequestsModal() {
-  if (!isDeveloper(currentProfile)) return;
-  requestPage = 1;
-  ensureRequestsModal().classList.remove("hidden");
-  document.body.classList.add("modal-open");
-  renderRequests();
-}
-
-function closeRequestsModal() {
-  document.getElementById("globalChannelRequestsModal")?.classList.add("hidden");
-  document.body.classList.remove("modal-open");
 }
 
 async function getRandomChannelPhoto() {
@@ -568,6 +517,19 @@ function formatRequestDate(value) {
   }).format(date);
 }
 
+function openRequestsModal() {
+  if (!isDeveloper(currentProfile)) return;
+  requestPage = 1;
+  ensureRequestsModal().classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  renderRequests();
+}
+
+function closeRequestsModal() {
+  document.getElementById("globalChannelRequestsModal")?.classList.add("hidden");
+  document.body.classList.remove("modal-open");
+}
+
 function renderRequests() {
   const modal = ensureRequestsModal();
   const list = modal.querySelector("#globalRequestsList");
@@ -623,6 +585,7 @@ function renderRequests() {
         { title: "채널 생성 신청 거절", confirmText: "거절", danger: true }
       );
       if (!confirmed) return;
+
       try {
         await updateDoc(doc(db, "channelCreationRequests", request.id), {
           status: "rejected",
@@ -659,21 +622,378 @@ function renderRequests() {
 
 function startRequestWatcher() {
   if (requestUnsubscribe || !isDeveloper(currentProfile)) return;
+
   requestUnsubscribe = onSnapshot(
     query(collection(db, "channelCreationRequests"), where("status", "==", "pending")),
     (snapshot) => {
       pendingRequests = snapshot.docs
         .map((item) => ({ id: item.id, ...item.data() }))
         .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-      const badge = document.getElementById("globalChannelRequestBadge");
-      if (badge) {
+
+      const badges = [
+        document.getElementById("globalChannelRequestBadge"),
+        document.getElementById("channelRequestBadge")
+      ].filter(Boolean);
+
+      badges.forEach((badge) => {
         badge.textContent = pendingRequests.length > 99 ? "99+" : String(pendingRequests.length);
         badge.classList.toggle("hidden", pendingRequests.length === 0);
+      });
+
+      if (!document.getElementById("globalChannelRequestsModal")?.classList.contains("hidden")) {
+        renderRequests();
       }
-      if (!document.getElementById("globalChannelRequestsModal")?.classList.contains("hidden")) renderRequests();
     },
     (error) => console.error("채널 생성 신청 실시간 조회 실패", error)
   );
+}
+
+async function loadManagedChannels() {
+  const snapshot = await getDocs(collection(db, "channels"));
+  managedChannels = snapshot.docs
+    .map((item) => ({ id: item.id, ...item.data() }))
+    .sort((a, b) => {
+      const aStatus = a.status === "active" ? 0 : 1;
+      const bStatus = b.status === "active" ? 0 : 1;
+      if (aStatus !== bStatus) return aStatus - bStatus;
+      return (a.name || "").localeCompare(b.name || "", "ko");
+    });
+}
+
+function managedOwner(channel) {
+  return ownerUsersByUid.get(channel.ownerUid) || null;
+}
+
+function managedOwnerLabel(channel) {
+  const owner = managedOwner(channel);
+  return owner?.name || owner?.email || channel.ownerEmail || "소유자 정보 없음";
+}
+
+function filteredManagedChannels() {
+  const term = channelManageSearch.toLocaleLowerCase("ko");
+  return managedChannels.filter((channel) => {
+    if (channelManageStatus !== "all" && channel.status !== channelManageStatus) return false;
+    if (!term) return true;
+    const owner = managedOwnerLabel(channel);
+    return `${channel.name || ""} ${owner} ${channel.ownerEmail || ""}`
+      .toLocaleLowerCase("ko")
+      .includes(term);
+  });
+}
+
+function dateInputValue(value) {
+  const date = value?.toDate?.();
+  if (!date) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function timestampFromDateInput(value) {
+  if (!value) return null;
+  const date = new Date(`${value}T23:59:59`);
+  if (Number.isNaN(date.getTime())) return null;
+  return Timestamp.fromDate(date);
+}
+
+function syncManagedCardStatus(card) {
+  const status = card.querySelector('[data-field="status"]').value;
+  const bingo = card.querySelector('[data-field="bingo"]');
+  const kill = card.querySelector('[data-field="kill"]');
+  const suspended = status === "suspended";
+
+  bingo.disabled = suspended;
+  kill.disabled = suspended;
+  if (suspended) {
+    bingo.checked = false;
+    kill.checked = false;
+  }
+
+  card.classList.toggle("is-suspended", suspended);
+  const statusPill = card.querySelector(".global-channel-status-pill");
+  statusPill.textContent = suspended ? "비활성" : "활성";
+  statusPill.dataset.status = status;
+}
+
+function makeManagedChannelCard(channel) {
+  const owner = managedOwnerLabel(channel);
+  const card = document.createElement("article");
+  card.className = `global-channel-management-card${channel.status === "suspended" ? " is-suspended" : ""}`;
+  card.dataset.channelId = channel.id;
+
+  card.innerHTML = `
+    <div class="global-channel-management-card-head">
+      <div>
+        <span class="global-channel-status-pill" data-status="${escapeHtml(channel.status || "active")}">${channel.status === "suspended" ? "비활성" : "활성"}</span>
+        <strong>${escapeHtml(channel.name || "HNSITE 채널")}</strong>
+        <small>소유자 · ${escapeHtml(owner)}</small>
+      </div>
+    </div>
+
+    <div class="global-channel-management-fields">
+      <label>
+        채널 이름
+        <input data-field="name" type="text" maxlength="40" value="${escapeHtml(channel.name || "")}" />
+      </label>
+
+      <label>
+        채널 상태
+        <select data-field="status">
+          <option value="active"${channel.status === "active" ? " selected" : ""}>활성</option>
+          <option value="suspended"${channel.status === "suspended" ? " selected" : ""}>비활성</option>
+        </select>
+      </label>
+
+      <label>
+        이용 상태
+        <select data-field="subscription">
+          <option value="beta"${channel.subscriptionStatus === "beta" ? " selected" : ""}>베타</option>
+          <option value="trial"${channel.subscriptionStatus === "trial" ? " selected" : ""}>체험</option>
+          <option value="active"${channel.subscriptionStatus === "active" ? " selected" : ""}>이용 중</option>
+          <option value="expired"${channel.subscriptionStatus === "expired" ? " selected" : ""}>기간 만료</option>
+        </select>
+      </label>
+
+      <label>
+        이용 종료일
+        <input data-field="ends" type="date" value="${escapeHtml(dateInputValue(channel.subscriptionEndsAt))}" />
+      </label>
+    </div>
+
+    <fieldset class="global-channel-management-features">
+      <legend>사용 기능</legend>
+      <label><input data-field="bingo" type="checkbox"${channel.bingoEnabled === true ? " checked" : ""} /> 빙고</label>
+      <label><input data-field="kill" type="checkbox"${channel.killEnabled === true ? " checked" : ""} /> 킬내기</label>
+      <small>활성 상태에서는 하나 이상 선택해야 합니다. 비활성화하면 모든 기능 사용권이 해제됩니다.</small>
+    </fieldset>
+
+    <p class="message global-channel-management-card-message"></p>
+
+    <div class="global-channel-management-actions">
+      <button class="save-managed-channel" type="button">저장</button>
+      <button class="secondary manage-channel-members" type="button">사용자 관리</button>
+      <button class="secondary enter-managed-channel" type="button"${channel.status === "active" ? "" : " disabled"}>채널 들어가기</button>
+    </div>`;
+
+  card.querySelector('[data-field="status"]').addEventListener("change", () => syncManagedCardStatus(card));
+  card.querySelector(".save-managed-channel").addEventListener("click", () => saveManagedChannel(channel, card));
+  card.querySelector(".manage-channel-members").addEventListener("click", () => {
+    openChannelMemberManagement(channel, currentProfile);
+  });
+  card.querySelector(".enter-managed-channel").addEventListener("click", () => {
+    if (channel.status !== "active") return;
+    setCurrentChannelId(currentUser.uid, channel.id);
+    location.href = "./app.html";
+  });
+
+  syncManagedCardStatus(card);
+  return card;
+}
+
+function renderChannelManagement() {
+  const modal = ensureChannelManagementModal();
+  const list = modal.querySelector("#globalChannelManageList");
+  const pagination = modal.querySelector("#globalChannelManagePagination");
+  const stats = modal.querySelector("#globalChannelManageStats");
+  const channels = filteredManagedChannels();
+
+  const activeCount = managedChannels.filter((channel) => channel.status === "active").length;
+  const suspendedCount = managedChannels.filter((channel) => channel.status === "suspended").length;
+  stats.innerHTML = `<span>전체 <strong>${managedChannels.length}</strong></span><span>활성 <strong>${activeCount}</strong></span><span>비활성 <strong>${suspendedCount}</strong></span>`;
+
+  list.innerHTML = "";
+  if (!channels.length) {
+    list.innerHTML = '<div class="channel-request-empty">조건에 맞는 채널이 없습니다.</div>';
+    pagination.classList.add("hidden");
+    return;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(channels.length / CHANNEL_MANAGE_PAGE_SIZE));
+  channelManagePage = Math.min(Math.max(1, channelManagePage), totalPages);
+  const start = (channelManagePage - 1) * CHANNEL_MANAGE_PAGE_SIZE;
+  const items = channels.slice(start, start + CHANNEL_MANAGE_PAGE_SIZE);
+
+  items.forEach((channel) => list.appendChild(makeManagedChannelCard(channel)));
+
+  if (channels.length <= CHANNEL_MANAGE_PAGE_SIZE) {
+    pagination.classList.add("hidden");
+    return;
+  }
+
+  pagination.classList.remove("hidden");
+  modal.querySelector("#globalChannelManageSummary").textContent = `총 ${channels.length}개 · ${start + 1}-${start + items.length}개 표시`;
+  modal.querySelector("#globalChannelManagePage").textContent = `${channelManagePage} / ${totalPages}`;
+  modal.querySelector("#globalChannelManagePrev").disabled = channelManagePage <= 1;
+  modal.querySelector("#globalChannelManageNext").disabled = channelManagePage >= totalPages;
+}
+
+async function updateMemberAccesses(channelId, channelStatus, bingoEnabled, killEnabled) {
+  const snapshot = await getDocs(collection(db, "channels", channelId, "members"));
+  const editable = snapshot.docs.filter((memberDoc) =>
+    ["approved", "active", "suspended"].includes(memberDoc.data().status)
+  );
+
+  for (let start = 0; start < editable.length; start += MEMBER_BATCH_SIZE) {
+    const batch = writeBatch(db);
+    editable.slice(start, start + MEMBER_BATCH_SIZE).forEach((memberDoc) => {
+      const member = memberDoc.data();
+      const usable = channelStatus === "active" && ["approved", "active"].includes(member.status);
+      batch.update(memberDoc.ref, {
+        bingoAccess: usable && bingoEnabled ? "write" : "none",
+        killSheetAccess: usable && killEnabled ? "write" : "none",
+        updatedAt: serverTimestamp()
+      });
+    });
+    await batch.commit();
+  }
+}
+
+async function saveManagedChannel(channel, card) {
+  if (!isDeveloper(currentProfile)) return;
+
+  const message = card.querySelector(".global-channel-management-card-message");
+  const saveButton = card.querySelector(".save-managed-channel");
+  const name = card.querySelector('[data-field="name"]').value.trim();
+  const status = card.querySelector('[data-field="status"]').value;
+  const subscriptionStatus = card.querySelector('[data-field="subscription"]').value;
+  const subscriptionEndsAt = timestampFromDateInput(card.querySelector('[data-field="ends"]').value);
+  const bingoEnabled = status === "active" && card.querySelector('[data-field="bingo"]').checked;
+  const killEnabled = status === "active" && card.querySelector('[data-field="kill"]').checked;
+
+  message.textContent = "";
+  message.classList.remove("success");
+
+  if (!name) {
+    message.textContent = "채널 이름을 입력해주세요.";
+    return;
+  }
+
+  if (status === "active" && !bingoEnabled && !killEnabled) {
+    message.textContent = "활성 채널은 빙고와 킬내기 중 하나 이상을 선택해야 합니다.";
+    return;
+  }
+
+  if (channel.status === "active" && status === "suspended") {
+    const confirmed = await showConfirm(
+      `${channel.name || "선택한 채널"}을 비활성화할까요? 비활성화하면 모든 사용자의 빙고·킬내기 이용이 중지됩니다. 기존 데이터는 삭제되지 않습니다.`,
+      {
+        title: "채널 비활성화",
+        confirmText: "비활성화",
+        danger: true
+      }
+    );
+    if (!confirmed) {
+      card.querySelector('[data-field="status"]').value = channel.status || "active";
+      card.querySelector('[data-field="bingo"]').checked = channel.bingoEnabled === true;
+      card.querySelector('[data-field="kill"]').checked = channel.killEnabled === true;
+      syncManagedCardStatus(card);
+      return;
+    }
+  }
+
+  saveButton.disabled = true;
+  saveButton.textContent = "저장 중...";
+
+  try {
+    const channelRef = doc(db, "channels", channel.id);
+    const directoryRef = doc(db, "channelDirectory", channel.id);
+    const directorySnapshot = await getDoc(directoryRef);
+    const ownerName = managedOwnerLabel(channel);
+    const batch = writeBatch(db);
+
+    batch.update(channelRef, {
+      name,
+      status,
+      subscriptionStatus,
+      bingoEnabled,
+      killEnabled,
+      subscriptionEndsAt,
+      updatedAt: serverTimestamp()
+    });
+
+    if (directorySnapshot.exists()) {
+      batch.update(directoryRef, {
+        name,
+        photoURL: channel.photoURL || "",
+        ownerName,
+        status,
+        updatedAt: serverTimestamp()
+      });
+    } else {
+      batch.set(directoryRef, {
+        name,
+        photoURL: channel.photoURL || "",
+        ownerName,
+        status,
+        createdAt: channel.createdAt || serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    }
+
+    await batch.commit();
+    await updateMemberAccesses(channel.id, status, bingoEnabled, killEnabled);
+
+    channel.name = name;
+    channel.status = status;
+    channel.subscriptionStatus = subscriptionStatus;
+    channel.subscriptionEndsAt = subscriptionEndsAt;
+    channel.bingoEnabled = bingoEnabled;
+    channel.killEnabled = killEnabled;
+
+    message.textContent = status === "suspended"
+      ? "채널을 비활성화하고 모든 기능 이용을 중지했습니다."
+      : "채널 설정을 저장했습니다.";
+    message.classList.add("success");
+
+    const enterButton = card.querySelector(".enter-managed-channel");
+    enterButton.disabled = status !== "active";
+
+    if (currentContext?.channelId === channel.id) {
+      currentContext.channel = { ...currentContext.channel, ...channel };
+      setTimeout(() => {
+        if (status === "suspended") location.href = "./channels.html";
+        else location.reload();
+      }, 500);
+    } else {
+      await loadManagedChannels();
+      setTimeout(renderChannelManagement, 250);
+    }
+  } catch (error) {
+    console.error("전체 채널 설정 저장 실패", error);
+    message.textContent = firebaseErrorMessage(error, "채널 설정을 저장하지 못했습니다.");
+    message.classList.remove("success");
+  } finally {
+    saveButton.disabled = false;
+    saveButton.textContent = "저장";
+  }
+}
+
+async function openChannelManagement() {
+  if (!isDeveloper(currentProfile)) return;
+
+  const modal = ensureChannelManagementModal();
+  const message = modal.querySelector("#globalChannelManageMessage");
+  message.textContent = "채널 정보를 불러오는 중...";
+  message.classList.remove("success");
+  modal.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+
+  try {
+    if (!ownerUsers.length) await loadOwnerUsers();
+    await loadManagedChannels();
+    channelManagePage = 1;
+    message.textContent = "";
+    renderChannelManagement();
+  } catch (error) {
+    console.error("전체 채널 조회 실패", error);
+    message.textContent = firebaseErrorMessage(error, "전체 채널을 불러오지 못했습니다.");
+  }
+}
+
+function closeChannelManagement() {
+  document.getElementById("globalChannelManagementModal")?.classList.add("hidden");
+  document.body.classList.remove("modal-open");
 }
 
 export async function initDeveloperChannelTools(user, profile, context = null) {
@@ -681,11 +1001,17 @@ export async function initDeveloperChannelTools(user, profile, context = null) {
   currentProfile = profile;
   currentContext = context;
   if (!isDeveloper(currentProfile)) return;
+
   ensureButtons();
   ensureCreateModal();
+  ensureChannelManagementModal();
   ensureRequestsModal();
-  if (currentContext?.channelId) ensureSettingsModal();
-  startRequestWatcher();
+
+  // channels.html에는 자체 채널 신청 관리가 있으므로 중복 구독을 만들지 않는다.
+  if (document.getElementById("globalChannelRequestsButton")) {
+    startRequestWatcher();
+  }
+
   try {
     await loadOwnerUsers();
     renderOwnerOptions();

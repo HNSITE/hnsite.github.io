@@ -45,6 +45,10 @@ import {
   showConfirm
 } from "./ui-dialog.js";
 
+import {
+  initDeveloperChannelTools
+} from "./developer-channel-tools.js";
+
 
 const CHANNEL_PAGE_SIZE = 8;
 const JOINED_PAGE_SIZE = 8;
@@ -3495,6 +3499,13 @@ onAuthStateChanged(
         isDeveloper(
           currentProfile
         );
+
+
+      await initDeveloperChannelTools(
+        user,
+        currentProfile,
+        null
+      );
 
 
       document
