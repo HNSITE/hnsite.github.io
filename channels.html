@@ -1,71 +1,276 @@
 <!doctype html>
 <html lang="ko">
+
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#7d65ce" />
-  <link rel="manifest" href="./manifest.webmanifest" />
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  />
+
+  <meta
+    name="theme-color"
+    content="#7d65ce"
+  />
+
+  <link
+    rel="manifest"
+    href="./manifest.webmanifest"
+  />
+
   <title>채널 선택 | HNSITE</title>
-  <link rel="stylesheet" href="./assets/styles.css?v=28" />
+
+  <link
+    rel="stylesheet"
+    href="./assets/styles.css?v=29"
+  />
 </head>
+
 <body class="app-page">
+
   <header class="topbar app-topbar">
-    <a class="topbar-brand" href="./channels.html">HNSITE</a>
-    <nav class="topbar-user" aria-label="사용자 메뉴">
-      <span id="userEmail" class="topbar-email"></span>
-      <span id="platformRoleBadge" class="badge"></span>
-      <button id="logoutButton" class="secondary compact-button" type="button">로그아웃</button>
+
+    <a
+      class="topbar-brand"
+      href="./channels.html"
+    >
+      HNSITE
+    </a>
+
+    <nav
+      class="topbar-user"
+      aria-label="사용자 메뉴"
+    >
+
+      <!-- developer에게만 표시 -->
+      <button
+        id="openCreateChannelButton"
+        class="topbar-link hidden"
+        type="button"
+      >
+        + 채널 생성
+      </button>
+
+      <span
+        id="userEmail"
+        class="topbar-email"
+      ></span>
+
+      <span
+        id="platformRoleBadge"
+        class="badge"
+      ></span>
+
+      <button
+        id="logoutButton"
+        class="secondary compact-button"
+        type="button"
+      >
+        로그아웃
+      </button>
+
     </nav>
+
   </header>
 
+
   <main class="page-wrap channel-page-wrap">
-    <section id="loadingPanel" class="panel loading-card">
-      <h2>채널 정보를 확인하고 있습니다...</h2>
+
+    <section
+      id="loadingPanel"
+      class="panel loading-card"
+    >
+      <h2>
+        채널 정보를 확인하고 있습니다...
+      </h2>
     </section>
 
-    <div id="channelContent" class="hidden">
+
+    <div
+      id="channelContent"
+      class="hidden"
+    >
+
       <section class="channel-hero">
+
         <div>
-          <p class="eyebrow">HNSITE CHANNEL</p>
-          <h1>사용할 채널을 선택하세요</h1>
-          <p class="muted">소유한 채널과 초대받아 가입한 채널만 표시됩니다.</p>
+
+          <p class="eyebrow">
+            HNSITE CHANNEL
+          </p>
+
+          <h1>
+            사용할 채널을 선택하세요
+          </h1>
+
+          <p class="muted">
+            소유한 채널과 가입한 채널이 표시됩니다.
+          </p>
+
         </div>
+
       </section>
 
-      <p id="channelMessage" class="message"></p>
-      <section id="channelList" class="channel-grid"></section>
 
-      <section id="developerCreatePanel" class="panel developer-channel-panel hidden">
-        <div class="section-title-row">
-          <div><p class="eyebrow">DEVELOPER</p><h2>새 채널 생성</h2></div>
-        </div>
-        <form id="createChannelForm" class="channel-create-form">
-          <label>채널 이름<input id="channelName" type="text" maxlength="40" placeholder="예: BJ 홍길동 채널" required /></label>
-          <label>채널 소유자<select id="channelOwner" required></select></label>
-          <button id="createChannelButton" type="submit">채널 생성</button>
-        </form>
-        <p class="muted">초기 유료 판매 단계에서는 개발자가 채널을 생성하고 소유자를 지정합니다.</p>
-        <div class="developer-channel-admin-head"><h3>채널 이용권 관리</h3><p class="muted">베타/유료 상태와 종료일을 수동으로 관리합니다.</p></div>
-        <div id="developerChannelAdminList" class="developer-channel-admin-list"></div>
-      </section>
+      <p
+        id="channelMessage"
+        class="message"
+      ></p>
+
+
+      <section
+        id="channelList"
+        class="channel-grid"
+      ></section>
+
     </div>
+
   </main>
 
-  <div id="channelMemberModal" class="admin-modal hidden">
-    <div class="admin-modal-backdrop" data-close-channel-members></div>
-    <section class="admin-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="channelMemberTitle">
+
+  <!-- ================================
+       개발자 채널 생성 팝업
+  ================================= -->
+
+  <div
+    id="createChannelModal"
+    class="admin-modal hidden"
+  >
+
+    <div
+      class="admin-modal-backdrop"
+      data-close-create-channel
+    ></div>
+
+
+    <section
+      class="admin-modal-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="createChannelModalTitle"
+      style="width:min(620px,100%)"
+    >
+
       <div class="admin-modal-header">
-        <div><p class="eyebrow">CHANNEL MEMBERS</p><h2 id="channelMemberTitle">채널 멤버</h2><p class="muted">채널 소유자는 관리자 지정과 빙고 권한을 변경할 수 있습니다.</p></div>
-        <button class="modal-close-button" data-close-channel-members type="button">×</button>
+
+        <div>
+
+          <p class="eyebrow">
+            DEVELOPER
+          </p>
+
+          <h2 id="createChannelModalTitle">
+            새 채널 생성
+          </h2>
+
+          <p class="muted">
+            채널 이름과 소유자를 지정합니다.
+          </p>
+
+        </div>
+
+
+        <button
+          class="modal-close-button"
+          data-close-create-channel
+          type="button"
+          aria-label="닫기"
+        >
+          ×
+        </button>
+
       </div>
-      <p id="channelMemberMessage" class="message admin-modal-message"></p>
-      <div id="channelMemberList" class="channel-member-list"></div>
+
+
+      <form
+        id="createChannelForm"
+        class="stack"
+        style="padding:24px"
+      >
+
+        <label>
+          채널 이름
+
+          <input
+            id="channelName"
+            type="text"
+            maxlength="40"
+            placeholder="예: 추랑"
+            required
+          />
+        </label>
+
+
+        <label>
+          채널 소유자
+
+          <select
+            id="channelOwner"
+            required
+          ></select>
+
+        </label>
+
+
+        <p
+          id="createChannelMessage"
+          class="message"
+        ></p>
+
+
+        <div
+          style="
+            display:flex;
+            justify-content:flex-end;
+            gap:10px;
+          "
+        >
+
+          <button
+            class="secondary"
+            data-close-create-channel
+            type="button"
+          >
+            취소
+          </button>
+
+          <button
+            id="createChannelButton"
+            type="submit"
+          >
+            채널 생성
+          </button>
+
+        </div>
+
+      </form>
+
     </section>
+
   </div>
 
-  <script type="module" src="./js/channels.js?v=28"></script>
-  <script type="module" src="./js/update-modal.js?v=28"></script>
-  <script type="module" src="./js/network-status.js?v=28"></script>
-  <script type="module" src="./js/pwa.js?v=28"></script>
+
+  <script
+    type="module"
+    src="./js/channels.js?v=29"
+  ></script>
+
+  <script
+    type="module"
+    src="./js/update-modal.js?v=29"
+  ></script>
+
+  <script
+    type="module"
+    src="./js/network-status.js?v=29"
+  ></script>
+
+  <script
+    type="module"
+    src="./js/pwa.js?v=29"
+  ></script>
+
 </body>
+
 </html>
