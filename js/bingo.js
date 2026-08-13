@@ -30,7 +30,7 @@ import {
   loadPlatformProfile,
   resolvedFeatureAccess,
   setCurrentChannelId
-} from "./channel-context.js?v=28";
+} from "./channel-context.js?v=33";
 
 const loadingPanel = document.getElementById("loadingPanel");
 const bingoContent = document.getElementById("bingoContent");
@@ -360,7 +360,9 @@ function renderRoomList() {
 async function loadSelectableUsers() {
   if (!canCreateRoom()) { selectableUsers = []; return; }
   const snap = await getDocs(collection(db, "channels", currentContext.channelId, "members"));
-  selectableUsers = snap.docs.map((item) => ({ uid: item.id, ...item.data() })).filter((user) => user.uid !== currentUser.uid && user.status === "active" && (["owner", "admin"].includes(user.role) || ["read", "write"].includes(user.bingoAccess))).sort((a, b) => (a.name || a.email || "").localeCompare(b.name || b.email || "", "ko"));
+  selectableUsers = snap.docs.map((item) => ({ uid: item.id, ...item.data() })).filter((user) => user.uid !== currentUser.uid && ["approved", "active"].includes(
+  user.status
+) && (["owner", "admin"].includes(user.role) || ["read", "write"].includes(user.bingoAccess))).sort((a, b) => (a.name || a.email || "").localeCompare(b.name || b.email || "", "ko"));
 }
 function matchesParticipantSearch(user, term) { return !term || `${user.name || ""} ${user.email || ""}`.toLocaleLowerCase("ko").includes(term.toLocaleLowerCase("ko")); }
 function renderPagination(container, totalItems, pageValue, onChange) {

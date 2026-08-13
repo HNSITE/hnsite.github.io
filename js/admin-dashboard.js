@@ -2,7 +2,7 @@ import { db } from "./firebase-config.js";
 import { collection, getDocs } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 import { showNotice } from "./ui-dialog.js?v=28";
 import { firebaseErrorMessage } from "./error-messages.js?v=28";
-import { isChannelManager } from "./channel-context.js?v=28";
+import { isChannelManager } from "./channel-context.js?v=33";
 
 let currentProfile = null;
 let currentContext = null;
@@ -69,8 +69,24 @@ async function loadDashboard() {
   const today = new Date();
   const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
   const stats = {
-    members: cachedMembers.filter((item) => item.status === "active").length,
-    admins: cachedMembers.filter((item) => ["owner", "admin"].includes(item.role) && item.status === "active").length,
+members:
+  cachedMembers.filter(
+    (item) =>
+      ["approved", "active"].includes(
+        item.status
+      )
+  ).length,
+
+admins:
+  cachedMembers.filter(
+    (item) =>
+      ["owner", "admin"].includes(
+        item.role
+      ) &&
+      ["approved", "active"].includes(
+        item.status
+      )
+  ).length,
     active: cachedRooms.filter((item) => item.status !== "closed").length,
     closed: cachedRooms.filter((item) => item.status === "closed").length,
     today: cachedRooms.filter((item) => timestampMs(item.createdAt) >= startToday).length

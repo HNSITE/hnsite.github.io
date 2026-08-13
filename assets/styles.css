@@ -87,26 +87,542 @@ body.modal-open{overflow:hidden}.update-news-button{display:inline-flex;align-it
 @media print{.topbar,.room-actions,.bingo-board-toolbar,.chicken-history-panel,.room-participant-inline,.update-news-modal,.room-presence-summary,.network-status-indicator,.room-realtime-toast,#printResultButton{display:none!important}.app-page{background:#fff}.panel{box-shadow:none}.bingo-room-wrap{max-width:none;padding:0}}
 
 
-/* v28: HNSITE multi-channel */
-.channel-badge{display:inline-flex;align-items:center;max-width:180px;padding:5px 9px;border-radius:999px;background:#f0eaff;color:#6f50bd;font-size:11px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.channel-page-wrap{max-width:1050px;padding-top:42px;padding-bottom:70px}.channel-hero{margin:4px 0 26px}.channel-hero h1{margin:5px 0 8px;font-size:34px;letter-spacing:-.045em}.channel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.channel-card{display:flex;flex-direction:column;justify-content:space-between;min-height:190px;margin:0}.channel-card h2{margin:9px 0 6px;font-size:23px;letter-spacing:-.035em}.channel-card p{margin:0}.channel-card-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px}.channel-empty{grid-column:1/-1;display:grid;gap:7px;text-align:center}.developer-channel-panel{margin-top:24px}.channel-create-form{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(220px,1fr) auto;gap:12px;align-items:end;margin:16px 0 10px}.channel-create-form label{display:grid;gap:7px;font-size:13px;font-weight:900}.channel-member-list{display:grid;gap:9px;overflow:auto;padding:16px 26px 26px}.channel-member-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 13px;border:1px solid #ebe6f0;border-radius:14px;background:#fff}.channel-member-info{display:grid;gap:3px;min-width:0}.channel-member-info strong{font-size:13px}.channel-member-info small{color:#8a8292;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.channel-member-controls{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}.channel-member-controls select{width:auto;min-width:112px;padding:8px 9px}.room-summary-card{min-height:112px}.badge[data-role="owner"]{background:#efeaff;color:#6e52ba}.badge[data-role="admin"]{background:#edf3ff;color:#315fca}.badge[data-role="member"]{background:#f2f4f7;color:#596273}
-@media(max-width:760px){.channel-grid{grid-template-columns:1fr}.channel-hero h1{font-size:28px}.channel-create-form{grid-template-columns:1fr}.channel-card-actions{display:grid;grid-template-columns:1fr 1fr}.channel-card-actions .select-channel-button{grid-column:1/-1}.channel-member-row{align-items:stretch;flex-direction:column}.channel-member-controls{justify-content:flex-start}.channel-member-controls select{flex:1;min-width:0}.channel-badge{max-width:120px}}
+/* HNSITE 채널 선택 */
+.channel-badge{
+  display:inline-flex;
+  align-items:center;
+  max-width:180px;
+  padding:5px 9px;
+  border-radius:999px;
+  background:#f0eaff;
+  color:#6f50bd;
+  font-size:11px;
+  font-weight:900;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis
+}
 
-.developer-channel-admin-head{margin-top:24px;padding-top:20px;border-top:1px solid #ebe6f0}.developer-channel-admin-head h3{margin:0 0 5px}.developer-channel-admin-head p{margin:0}.developer-channel-admin-list{display:grid;gap:9px;margin-top:14px}.developer-channel-admin-row{display:grid;grid-template-columns:minmax(190px,1.5fr) 120px 145px auto auto;gap:8px;align-items:center;padding:11px 12px;border:1px solid #e8e3ef;border-radius:14px;background:#fff}.developer-channel-admin-info{display:grid;gap:3px;min-width:0}.developer-channel-admin-info strong,.developer-channel-admin-info small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.developer-channel-admin-info small{color:#8a8292;font-size:10px}.developer-feature-check{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800}.developer-feature-check input{width:16px;height:16px}@media(max-width:760px){.developer-channel-admin-row{grid-template-columns:1fr 1fr}.developer-channel-admin-info{grid-column:1/-1}.developer-subscription-end{grid-column:2}.developer-channel-save{grid-column:1/-1}}
+.channel-page-wrap{
+  max-width:1050px;
+  padding-top:42px;
+  padding-bottom:70px
+}
+
+.channel-hero{
+  margin:4px 0 26px
+}
+
+.channel-hero h1{
+  margin:5px 0 0;
+  font-size:34px;
+  letter-spacing:-.045em
+}
+
+.channel-section-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  margin:0 0 14px
+}
+
+.channel-section-head h2{
+  margin:0;
+  color:#3d3548;
+  font-size:20px;
+  letter-spacing:-.035em
+}
+
+.owned-channel-section{
+  margin-bottom:30px;
+  padding-bottom:28px;
+  border-bottom:1px solid #e9e4ef
+}
+
+.channel-count-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:34px;
+  height:26px;
+  padding:0 10px;
+  border-radius:999px;
+  background:#f0eaff;
+  color:#7257bd;
+  font-size:11px;
+  font-weight:900
+}
+
+.channel-toolbar{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:12px;
+  align-items:center;
+  margin-bottom:18px
+}
+
+.channel-search-wrap{
+  margin:0
+}
+
+.channel-search-input{
+  width:100%;
+  height:48px;
+  padding:0 16px;
+  border:1px solid #ddd7e8;
+  border-radius:15px;
+  background:#fff;
+  color:#40384d;
+  outline:none;
+  box-shadow:0 6px 18px rgba(65,55,89,.04);
+  transition:border-color .15s ease,box-shadow .15s ease
+}
+
+.channel-search-input::placeholder{
+  color:#9a92a5
+}
+
+.channel-search-input:focus{
+  border-color:#aa94dc;
+  box-shadow:0 0 0 4px rgba(133,104,203,.1)
+}
+
+.channel-create-top-button{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  min-height:38px;
+  padding:0 14px;
+  border:1px solid #d8cdef;
+  border-radius:12px;
+  background:#f7f3ff;
+  color:#7257bd;
+  box-shadow:none;
+  font-size:13px;
+  font-weight:900;
+  white-space:nowrap
+}
+
+.channel-create-top-button:hover{
+  background:#efe8ff;
+  border-color:#c5b3e7
+}
+
+.channel-create-plus{
+  font-size:17px;
+  line-height:1
+}
+
+.channel-request-admin-button{
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  min-height:38px;
+  padding:0 13px;
+  border:1px solid #ead9df;
+  border-radius:12px;
+  background:#fff8fa;
+  color:#a14565;
+  box-shadow:none;
+  font-size:13px;
+  font-weight:900
+}
+
+.channel-request-admin-button:hover{
+  background:#fff0f5
+}
+
+.channel-request-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:20px;
+  height:20px;
+  padding:0 6px;
+  border-radius:999px;
+  background:#d94d71;
+  color:#fff;
+  font-size:10px;
+  font-weight:900
+}
+
+.channel-request-button{
+  min-height:48px;
+  padding:0 18px;
+  border:1px solid #d7cbea;
+  border-radius:15px;
+  background:#fff;
+  color:#765bc2;
+  box-shadow:0 6px 18px rgba(65,55,89,.04);
+  font-size:13px;
+  font-weight:900;
+  white-space:nowrap
+}
+
+.channel-request-button:hover:not(:disabled){
+  background:#f8f5ff;
+  border-color:#bdaae2
+}
+
+.channel-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:16px
+}
+
+.channel-card{
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  min-height:190px;
+  margin:0;
+  padding:22px;
+  border-radius:22px
+}
+
+.owned-channel-card{
+  border-color:#cfc1ea;
+  background:linear-gradient(145deg,#fff,#faf7ff);
+  box-shadow:0 14px 35px rgba(99,76,150,.1)
+}
+
+.channel-card-head{
+  display:flex;
+  align-items:center;
+  gap:16px
+}
+
+.channel-card-image{
+  width:72px;
+  height:72px;
+  flex:0 0 auto;
+  object-fit:cover;
+  border-radius:18px
+}
+
+.channel-card-image-empty{
+  display:grid;
+  place-items:center;
+  background:#f0ecfa;
+  color:#8064cb;
+  font-weight:900
+}
+
+.channel-card-info{
+  min-width:0
+}
+
+.channel-card-info h2{
+  margin:7px 0 0;
+  color:#30293c;
+  font-size:22px;
+  letter-spacing:-.035em
+}
+
+.owned-channel-badge{
+  display:inline-flex;
+  align-items:center;
+  padding:4px 8px;
+  border-radius:999px;
+  background:#eee7ff;
+  color:#6f50bd;
+  font-size:10px;
+  font-weight:900
+}
+
+.channel-card-actions{
+  display:flex;
+  gap:8px;
+  margin-top:22px
+}
+
+.select-channel-button{
+  width:100%;
+  border-radius:13px;
+  background:linear-gradient(135deg,#8d72d5,#765cc6)
+}
+
+.channel-empty{
+  grid-column:1/-1;
+  display:grid;
+  gap:7px;
+  padding:40px 24px;
+  text-align:center
+}
+
+.channel-empty span,
+.channel-secondary-empty{
+  color:#81788c;
+  font-size:13px
+}
+
+.channel-secondary-empty{
+  grid-column:1/-1;
+  padding:24px;
+  border:1px dashed #ddd5e8;
+  border-radius:16px;
+  text-align:center
+}
+
+/* 페이징 */
+.channel-pagination{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  margin-top:18px;
+  padding:14px 2px
+}
+
+.channel-page-summary{
+  color:#81788c;
+  font-size:12px;
+  font-weight:700
+}
+
+.channel-page-buttons{
+  display:flex;
+  align-items:center;
+  gap:8px
+}
+
+.channel-page-buttons button{
+  min-width:64px;
+  padding:8px 12px
+}
+
+.channel-page-number{
+  min-width:60px;
+  text-align:center;
+  color:#5f566a;
+  font-size:13px;
+  font-weight:900
+}
+
+/* 채널 생성 모달 */
+.channel-create-modal-dialog{
+  width:min(620px,100%)
+}
+
+.channel-create-modal-form{
+  display:grid;
+  gap:18px;
+  padding:24px
+}
+
+.channel-create-modal-form>label,
+.channel-owner-field{
+  display:grid;
+  gap:8px;
+  color:#51485c;
+  font-size:13px;
+  font-weight:900
+}
+
+.channel-owner-field small{
+  font-weight:500
+}
+
+#channelOwnerSearch{
+  border-color:#ddd5e8
+}
+
+#channelOwnerSearch:focus{
+  border-color:#aa94dc;
+  outline:none;
+  box-shadow:0 0 0 4px rgba(133,104,203,.1)
+}
+
+.channel-modal-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:10px
+}
+
+/* 채널 생성 신청 / 채널 가입 승인 */
+
+.channel-request-modal-dialog,
+.channel-member-approval-dialog {
+  width: min(760px, 100%);
+}
+
+.channel-request-list {
+  display: grid;
+  gap: 10px;
+  padding: 18px 26px 8px;
+  overflow: auto;
+}
+
+.channel-request-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid #e8e2ef;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.channel-request-info {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.channel-request-info strong {
+  color: #40364d;
+  font-size: 15px;
+}
+
+.channel-request-info span {
+  color: #756c80;
+  font-size: 13px;
+}
+
+.channel-request-info small {
+  color: #9a91a4;
+  font-size: 11px;
+}
+
+.channel-request-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.channel-request-empty {
+  padding: 36px 18px;
+  border: 1px dashed #ddd5e8;
+  border-radius: 16px;
+  color: #82798d;
+  text-align: center;
+}
+
+.channel-request-pagination {
+  padding: 12px 26px 22px;
+}
+
+.channel-member-approval-button {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.channel-member-approval-button:hover {
+  background: #f2edff;
+  color: #7257bd;
+}
+
+
+/* 모바일 */
+
+@media (max-width: 760px) {
+  .channel-page-wrap {
+    padding-top: 26px;
+  }
+
+  .channel-hero h1 {
+    font-size: 28px;
+  }
+
+  .channel-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .channel-request-button {
+    width: 100%;
+  }
+
+  .channel-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .channel-pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .channel-page-buttons {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .channel-request-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .channel-request-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .channel-modal-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .channel-card {
+    min-height: 170px;
+  }
+}
 
 /* 채널 선택 화면 */
 .channel-page-wrap {
-  max-width: 900px;
+  max-width: 1050px;
   padding-top: 42px;
+  padding-bottom: 70px;
 }
 
 .channel-hero {
-  margin-bottom: 24px;
+  margin: 4px 0 26px;
 }
 
 .channel-hero h1 {
-  margin: 6px 0 0;
-  font-size: 32px;
-  letter-spacing: -.04em;
+  margin: 5px 0 0;
+  font-size: 34px;
+  letter-spacing: -.045em;
+}
+
+.channel-section {
+  margin-bottom: 30px;
+}
+
+.channel-section + .channel-section {
+  padding-top: 28px;
+  border-top: 1px solid #e9e4ef;
+}
+
+.channel-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 14px;
+}
+
+.channel-section-head h2 {
+  margin: 0;
+  color: #3d3548;
+  font-size: 20px;
+  letter-spacing: -.035em;
+}
+
+.channel-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #f0eaff;
+  color: #7257bd;
+  font-size: 11px;
+  font-weight: 900;
 }
 
 /* 상단 채널 생성 버튼 */
@@ -124,16 +640,11 @@ body.modal-open{overflow:hidden}.update-news-button{display:inline-flex;align-it
   font-size: 13px;
   font-weight: 900;
   white-space: nowrap;
-  transition:
-    background .15s ease,
-    border-color .15s ease,
-    transform .15s ease;
 }
 
 .channel-create-top-button:hover {
   background: #efe8ff;
   border-color: #c5b3e7;
-  transform: translateY(-1px);
 }
 
 .channel-create-plus {
@@ -143,7 +654,7 @@ body.modal-open{overflow:hidden}.update-news-button{display:inline-flex;align-it
 
 /* 채널 검색 */
 .channel-search-wrap {
-  margin-bottom: 20px;
+  margin: 0;
 }
 
 .channel-search-input {
@@ -167,24 +678,34 @@ body.modal-open{overflow:hidden}.update-news-button{display:inline-flex;align-it
 
 .channel-search-input:focus {
   border-color: #aa94dc;
-  box-shadow: 0 0 0 4px rgba(133, 104, 203, .10);
+  box-shadow: 0 0 0 4px rgba(133, 104, 203, .1);
 }
 
 /* 채널 카드 */
 .channel-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+  gap: 16px;
 }
 
 .channel-card {
-  margin: 0;
-  padding: 22px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   min-height: 190px;
+  margin: 0;
+  padding: 22px;
   border-radius: 22px;
+}
+
+.owned-channel-card {
+  border-color: #cfc1ea;
+  background: linear-gradient(
+    145deg,
+    #fff,
+    #faf7ff
+  );
+  box-shadow: 0 14px 35px rgba(99, 76, 150, .1);
 }
 
 .channel-card-head {
@@ -214,10 +735,58 @@ body.modal-open{overflow:hidden}.update-news-button{display:inline-flex;align-it
 }
 
 .channel-card-info h2 {
-  margin: 0;
+  margin: 7px 0 0;
   color: #30293c;
   font-size: 22px;
   letter-spacing: -.035em;
+}
+
+.channel-owner-name {
+  margin: 5px 0 0;
+  color: #8a8292;
+  font-size: 12px;
+}
+
+.owned-channel-badge,
+.pending-channel-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.owned-channel-badge {
+  background: #eee7ff;
+  color: #6f50bd;
+}
+
+.pending-channel-badge {
+  margin-left: 5px;
+  background: #fff3df;
+  color: #a76518;
+}
+
+.channel-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.select-channel-button,
+.join-channel-button {
+  width: 100%;
+  border-radius: 13px;
+  background: linear-gradient(
+    135deg,
+    #8d72d5,
+    #765cc6
+  );
+}
+
+.pending-channel-button {
+  width: 100%;
 }
 
 .channel-card-actions {
@@ -247,6 +816,7 @@ body.modal-open{overflow:hidden}.update-news-button{display:inline-flex;align-it
   font-size: 13px;
 }
 
+
 @media (max-width: 720px) {
   .channel-page-wrap {
     padding-top: 26px;
@@ -272,7 +842,7 @@ body.modal-open{overflow:hidden}.update-news-button{display:inline-flex;align-it
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .channel-toolbar .channel-search-wrap {
@@ -291,7 +861,10 @@ body.modal-open{overflow:hidden}.update-news-button{display:inline-flex;align-it
   font-weight: 900;
   white-space: nowrap;
 }
-
+.channel-request-button:hover:not(:disabled) {
+  background: #f8f5ff;
+  border-color: #bdaae2;
+}
 .channel-request-button:hover {
   background: #f8f5ff;
   border-color: #bdaae2;
@@ -330,6 +903,7 @@ body.modal-open{overflow:hidden}.update-news-button{display:inline-flex;align-it
   font-size: 10px;
   font-weight: 900;
 }
+
 
 .channel-request-modal-dialog {
   width: min(720px, 100%);

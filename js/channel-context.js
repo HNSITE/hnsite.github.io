@@ -1,52 +1,64 @@
-import { db } from "./firebase-config.js";
+import {
+  db
+} from "./firebase-config.js";
 
 import {
   doc,
   getDoc
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
-export const HNSITE_VERSION = "29";
 
-/*
- * 플랫폼 역할
- *
- * developer
- * user
- */
-export function platformRole(profile) {
+export const HNSITE_VERSION =
+  "33";
+
+
+export function platformRole(
+  profile
+) {
+  return (
+    profile?.platformRole ||
+    (
+      profile?.role ===
+      "developer"
+        ? "developer"
+        : "user"
+    )
+  );
+}
+
+
+export function isDeveloper(
+  profile
+) {
+  return (
+    platformRole(
+      profile
+    ) === "developer"
+  );
+}
+
+
+export function normalizeMemberStatus(
+  status
+) {
+
   if (
-    profile?.platformRole === "developer" ||
-    profile?.role === "developer"
+    status === "active"
   ) {
-    return "developer";
-  }
-
-  return "user";
-}
-
-/*
- * 개발자는 플랫폼 status와 관계없이 developer 역할만 확인한다.
- */
-export function isDeveloper(profile) {
-  return platformRole(profile) === "developer";
-}
-
-/*
- * 기존 active 데이터도 임시 호환
- *
- * 최종적으로는
- * pending / approved
- * 두 상태로 통일한다.
- */
-export function normalizeMemberStatus(status) {
-  if (status === "active") {
     return "approved";
   }
 
-  return status || "pending";
+
+  return (
+    status ||
+    "pending"
+  );
 }
 
-export function isMemberApproved(member) {
+
+export function isMemberApproved(
+  member
+) {
   return (
     normalizeMemberStatus(
       member?.status
@@ -54,7 +66,10 @@ export function isMemberApproved(member) {
   );
 }
 
-export function isMemberPending(member) {
+
+export function isMemberPending(
+  member
+) {
   return (
     normalizeMemberStatus(
       member?.status
@@ -62,73 +77,109 @@ export function isMemberPending(member) {
   );
 }
 
-export function channelRoleLabel(role) {
+
+export function channelRoleLabel(
+  role
+) {
   return (
     {
-      owner: "소유자",
-      admin: "관리자",
-      member: "멤버",
-      developer: "개발자"
+      owner:
+        "소유자",
+
+      admin:
+        "관리자",
+
+      member:
+        "멤버",
+
+      developer:
+        "개발자"
     }[role] ||
     role ||
     "멤버"
   );
 }
 
-export function accessLabel(value) {
+
+export function accessLabel(
+  value
+) {
   return (
     {
-      none: "접근 권한 없음",
-      read: "보기",
-      write: "사용 가능"
+      none:
+        "접근 권한 없음",
+
+      read:
+        "보기",
+
+      write:
+        "사용 가능"
     }[value] ||
     "접근 권한 없음"
   );
 }
 
-export function currentChannelStorageKey(uid) {
-  return `hnsiteCurrentChannelId:${uid}`;
+
+export function currentChannelStorageKey(
+  uid
+) {
+  return (
+    `hnsiteCurrentChannelId:${uid}`
+  );
 }
+
 
 export function setCurrentChannelId(
   uid,
   channelId
 ) {
   localStorage.setItem(
-    currentChannelStorageKey(uid),
+    currentChannelStorageKey(
+      uid
+    ),
     channelId
   );
 }
 
-export function clearCurrentChannelId(uid) {
+
+export function clearCurrentChannelId(
+  uid
+) {
   localStorage.removeItem(
-    currentChannelStorageKey(uid)
+    currentChannelStorageKey(
+      uid
+    )
   );
 }
+
 
 export function currentRoomStorageKey(
   channelId
 ) {
-  return `hnsiteCurrentRoomId:${channelId}`;
+  return (
+    `hnsiteCurrentRoomId:${channelId}`
+  );
 }
+
 
 export function archiveRoomStorageKey(
   channelId
 ) {
-  return `hnsiteArchiveRoomId:${channelId}`;
+  return (
+    `hnsiteArchiveRoomId:${channelId}`
+  );
 }
 
-/*
- * 플랫폼 사용자 조회
- *
- * 더 이상 users.status를 검사하지 않는다.
- *
- * Google 로그인 + users 문서 존재 여부만 확인.
- */
+
+/* =========================================================
+   플랫폼 사용자
+========================================================= */
+
 export async function loadPlatformProfile(
   user
 ) {
-  const snap =
+
+  const snapshot =
     await getDoc(
       doc(
         db,
@@ -137,21 +188,27 @@ export async function loadPlatformProfile(
       )
     );
 
-  if (!snap.exists()) {
-    const error =
-      new Error(
-        "사용자 정보를 찾을 수 없습니다."
-      );
 
-    error.code =
-      "PROFILE_NOT_FOUND";
+  if (
+    !snapshot.exists()
+  ) {
 
-    throw error;
+    throw new Error(
+      "등록되지 않은 계정입니다."
+    );
   }
 
-  const profile =
-    snap.data();
 
+  const profile =
+    snapshot.data();
+
+
+  /*
+   * 플랫폼 승인 여부로 로그인 차단하지 않는다.
+   *
+   * Google 로그인 성공 후 users/{uid}가 존재하면
+   * 채널 선택 화면 사용 가능.
+   */
   return {
     uid:
       user.uid,
@@ -159,22 +216,28 @@ export async function loadPlatformProfile(
     ...profile,
 
     platformRole:
-      platformRole(profile)
+      platformRole(
+        profile
+      )
   };
 }
 
-/*
- * 현재 선택된 채널 정보
- */
+
+/* =========================================================
+   현재 채널
+========================================================= */
+
 export async function loadCurrentChannelContext(
   user,
   profile = null
 ) {
+
   const resolvedProfile =
     profile ||
     await loadPlatformProfile(
       user
     );
+
 
   const channelId =
     localStorage.getItem(
@@ -183,22 +246,24 @@ export async function loadCurrentChannelContext(
       )
     );
 
+
   if (!channelId) {
+
     const error =
       new Error(
         "사용할 채널을 먼저 선택해주세요."
       );
 
+
     error.code =
       "NO_CHANNEL";
+
 
     throw error;
   }
 
-  /*
-   * 채널 문서 확인
-   */
-  const channelSnap =
+
+  const channelSnapshot =
     await getDoc(
       doc(
         db,
@@ -207,71 +272,66 @@ export async function loadCurrentChannelContext(
       )
     );
 
-  if (!channelSnap.exists()) {
+
+  if (
+    !channelSnapshot.exists()
+  ) {
+
     clearCurrentChannelId(
       user.uid
     );
+
 
     const error =
       new Error(
         "선택한 채널을 찾을 수 없습니다."
       );
 
+
     error.code =
       "CHANNEL_NOT_FOUND";
+
 
     throw error;
   }
 
+
   const channel = {
     id:
-      channelSnap.id,
+      channelSnapshot.id,
 
-    ...channelSnap.data()
+    ...channelSnapshot.data()
   };
 
+
   if (
-    channel.status !== "active"
+    channel.status !==
+    "active"
   ) {
+
     const error =
       new Error(
         "현재 사용할 수 없는 채널입니다."
       );
 
+
     error.code =
       "CHANNEL_INACTIVE";
+
 
     throw error;
   }
 
+
   /*
-   * developer는 members 문서가 없어도
-   * 모든 채널에 접근 가능
+   * 개발자는 실제 member 문서가 없어도
+   * 모든 채널 접근 가능.
    */
   if (
     isDeveloper(
       resolvedProfile
     )
   ) {
-    const member = {
-      uid:
-        user.uid,
-
-      role:
-        "developer",
-
-      status:
-        "approved",
-
-      bingoAccess:
-        "write",
-
-      killSheetAccess:
-        "write",
-
-      virtualDeveloper:
-        true
-    };
 
     return {
       profile:
@@ -281,14 +341,30 @@ export async function loadCurrentChannelContext(
 
       channel,
 
-      member
+      member: {
+        uid:
+          user.uid,
+
+        role:
+          "developer",
+
+        status:
+          "approved",
+
+        bingoAccess:
+          "write",
+
+        killSheetAccess:
+          "write",
+
+        virtualDeveloper:
+          true
+      }
     };
   }
 
-  /*
-   * 일반 사용자의 채널 멤버십 확인
-   */
-  const memberSnap =
+
+  const memberSnapshot =
     await getDoc(
       doc(
         db,
@@ -299,57 +375,70 @@ export async function loadCurrentChannelContext(
       )
     );
 
-  if (!memberSnap.exists()) {
+
+  if (
+    !memberSnapshot.exists()
+  ) {
+
+    clearCurrentChannelId(
+      user.uid
+    );
+
+
     const error =
       new Error(
-        "아직 이 채널에 가입 요청이 등록되지 않았습니다."
+        "선택한 채널에 가입되어 있지 않습니다."
       );
 
+
     error.code =
-      "CHANNEL_MEMBERSHIP_NOT_FOUND";
+      "CHANNEL_NOT_FOUND";
+
 
     throw error;
   }
 
-  const memberData =
-    memberSnap.data();
 
   const member = {
     uid:
-      memberSnap.id,
+      memberSnapshot.id,
 
-    ...memberData,
+    ...memberSnapshot.data(),
 
     status:
       normalizeMemberStatus(
-        memberData.status
+        memberSnapshot.data()
+          .status
       )
   };
 
+
   /*
-   * pending 사용자는 여기서 차단하지 않는다.
-   *
-   * app.html까지 들어간 후
+   * pending도 app.html까지는 들어가서
    * 승인 대기 화면을 보여준다.
    */
   if (
     ![
-      "pending",
-      "approved"
+      "approved",
+      "pending"
     ].includes(
       member.status
     )
   ) {
+
     const error =
       new Error(
-        "현재 사용할 수 없는 채널 멤버십입니다."
+        "현재 사용할 수 없는 채널입니다."
       );
+
 
     error.code =
       "CHANNEL_INACTIVE";
 
+
     throw error;
   }
+
 
   return {
     profile:
@@ -363,14 +452,15 @@ export async function loadCurrentChannelContext(
   };
 }
 
-/*
- * 채널 관리자 여부
- *
- * developer는 모든 채널 관리자 기능 사용 가능
- */
+
+/* =========================================================
+   채널 관리자
+========================================================= */
+
 export function isChannelManager(
   context
 ) {
+
   if (
     isDeveloper(
       context?.profile
@@ -378,6 +468,7 @@ export function isChannelManager(
   ) {
     return true;
   }
+
 
   if (
     !isMemberApproved(
@@ -387,20 +478,30 @@ export function isChannelManager(
     return false;
   }
 
-  return [
-    "owner",
-    "admin"
-  ].includes(
-    context?.member?.role
+
+  return (
+    [
+      "owner",
+      "admin"
+    ].includes(
+      context.member.role
+    )
   );
 }
+
+
+/* =========================================================
+   구독 상태
+========================================================= */
 
 export function isSubscriptionExpired(
   channel
 ) {
+
   if (!channel) {
     return true;
   }
+
 
   if (
     channel.subscriptionStatus ===
@@ -409,109 +510,133 @@ export function isSubscriptionExpired(
     return true;
   }
 
+
   const endsAt =
-    channel
-      .subscriptionEndsAt
+    channel.subscriptionEndsAt
       ?.toMillis?.();
 
+
   return (
-    Number.isFinite(endsAt) &&
-    endsAt <= Date.now()
+    Number.isFinite(
+      endsAt
+    ) &&
+    endsAt <=
+      Date.now()
   );
 }
 
-/*
- * 기능 권한
- */
+
+/* =========================================================
+   기능 권한
+========================================================= */
+
 export function resolvedFeatureAccess(
   context,
   feature
 ) {
+
   if (
-    !context?.channel
+    !context?.channel ||
+    !context?.member
   ) {
     return "none";
   }
 
+
+  /*
+   * 승인 대기자는
+   * 어떤 기능도 사용할 수 없음.
+   */
+  if (
+    isMemberPending(
+      context.member
+    ) &&
+    !isDeveloper(
+      context.profile
+    )
+  ) {
+    return "none";
+  }
+
+
   const enabled =
     feature === "bingo"
+
       ? context.channel
-          .bingoEnabled === true
+          .bingoEnabled ===
+        true
+
       : context.channel
-          .killEnabled === true;
+          .killEnabled ===
+        true;
+
 
   if (!enabled) {
     return "none";
   }
 
-  /*
-   * developer는 채널 멤버 승인 없이 사용 가능
-   */
-  if (
-    isDeveloper(
-      context.profile
-    )
-  ) {
-    return "write";
-  }
-
-  /*
-   * pending은 기능 사용 불가
-   */
-  if (
-    !isMemberApproved(
-      context.member
-    )
-  ) {
-    return "none";
-  }
 
   const expired =
     isSubscriptionExpired(
       context.channel
     );
 
-  /*
-   * owner / admin
-   */
+
   if (
     isChannelManager(
       context
     )
   ) {
-    return expired
-      ? "read"
-      : "write";
+
+    return (
+      expired
+        ? "read"
+        : "write"
+    );
   }
+
 
   const field =
     feature === "bingo"
+
       ? "bingoAccess"
+
       : "killSheetAccess";
+
 
   const memberAccess =
     [
       "read",
       "write"
     ].includes(
-      context.member?.[field]
+      context.member[field]
     )
+
       ? context.member[field]
+
       : "none";
 
-  if (
-    expired &&
-    memberAccess === "write"
-  ) {
-    return "read";
-  }
 
-  return memberAccess;
+  return (
+    expired &&
+    memberAccess ===
+      "write"
+
+      ? "read"
+
+      : memberAccess
+  );
 }
+
+
+/* =========================================================
+   화면 역할
+========================================================= */
 
 export function displayRole(
   context
 ) {
+
   if (
     isDeveloper(
       context?.profile
@@ -519,6 +644,7 @@ export function displayRole(
   ) {
     return "개발자";
   }
+
 
   return channelRoleLabel(
     context?.member?.role

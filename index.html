@@ -1,6 +1,5 @@
 <!doctype html>
 <html lang="ko">
-
 <head>
   <meta charset="utf-8" />
 
@@ -9,11 +8,21 @@
     content="width=device-width, initial-scale=1"
   />
 
+  <meta
+    name="theme-color"
+    content="#7d65ce"
+  />
+
+  <link
+    rel="manifest"
+    href="./manifest.webmanifest"
+  />
+
   <title>HNSITE 로그인</title>
 
   <link
     rel="stylesheet"
-    href="./assets/styles.css?v=28"
+    href="./assets/styles.css?v=33"
   />
 </head>
 
@@ -29,6 +38,7 @@
     aria-hidden="true"
   ></div>
 
+
   <main class="login-card cute-login-card">
 
     <div
@@ -38,18 +48,22 @@
       ✦
     </div>
 
+
     <div class="brand">
       HNSITE
     </div>
+
 
     <h1>
       반가워요!
     </h1>
 
+
     <p class="muted login-description">
-      Google 계정으로 로그인하면
-      채널 선택 화면으로 이동합니다.
+      Google 계정으로 로그인하고
+      사용할 채널을 선택하세요.
     </p>
+
 
     <button
       id="googleLoginButton"
@@ -70,28 +84,32 @@
 
     </button>
 
+
     <p
       id="loginMessage"
       class="message login-message"
       aria-live="polite"
     ></p>
 
+
     <div class="login-divider">
       <span>
-        채널 이용 안내
+        HNSITE
       </span>
     </div>
 
+
     <p class="muted request-help">
-      HNSITE 로그인에는 별도의 사용자 승인이 없습니다.
-      채널 사용 권한은 각 채널에서 승인받습니다.
+      채널 이용 권한은 각 채널의
+      소유자 또는 관리자가 승인합니다.
     </p>
 
   </main>
 
+
   <script
     type="module"
-    src="./js/login.js?v=29"
+    src="./js/login.js?v=33"
   ></script>
 
 </body>

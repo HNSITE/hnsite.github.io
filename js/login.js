@@ -1,4 +1,7 @@
-import { auth, db } from "./firebase-config.js";
+import {
+  auth,
+  db
+} from "./firebase-config.js";
 
 import {
   GoogleAuthProvider,
@@ -10,233 +13,371 @@ import {
   doc,
   getDoc,
   serverTimestamp,
-  setDoc
+  setDoc,
+  updateDoc
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
-const googleLoginButton = document.getElementById("googleLoginButton");
-const loginMessage = document.getElementById("loginMessage");
 
-const googleProvider = new GoogleAuthProvider();
+const googleLoginButton =
+  document.getElementById(
+    "googleLoginButton"
+  );
 
-googleProvider.setCustomParameters({
-  prompt: "select_account"
+const loginMessage =
+  document.getElementById(
+    "loginMessage"
+  );
+
+
+const provider =
+  new GoogleAuthProvider();
+
+
+provider.setCustomParameters({
+  prompt:
+    "select_account"
 });
 
-let authFlowBusy = false;
-let redirecting = false;
 
-function setMessage(text, success = false) {
-  if (!loginMessage) {
-    return;
-  }
+let busy =
+  false;
 
-  loginMessage.textContent = text;
-  loginMessage.classList.toggle("success", success);
+
+/* =========================================================
+   메시지
+========================================================= */
+
+function setMessage(
+  text,
+  success = false
+) {
+
+  loginMessage.textContent =
+    text || "";
+
+
+  loginMessage.classList.toggle(
+    "success",
+    success
+  );
 }
 
-function setGoogleButtonBusy(busy) {
-  if (!googleLoginButton) {
-    return;
-  }
 
-  googleLoginButton.disabled = busy;
+function setBusy(
+  value
+) {
 
-  const label = googleLoginButton.querySelector("span:last-child");
+  busy =
+    value;
+
+
+  googleLoginButton.disabled =
+    value;
+
+
+  const label =
+    googleLoginButton
+      .querySelector(
+        "span:last-child"
+      );
+
 
   if (label) {
-    label.textContent = busy
-      ? "Google 계정 확인 중..."
-      : "Google 계정으로 로그인";
+
+    label.textContent =
+      value
+        ? "Google 계정 확인 중..."
+        : "Google 계정으로 로그인";
   }
 }
 
-/*
- * Google 최초 로그인 시 users/{uid} 생성
- *
- * 플랫폼 전체 승인 절차는 사용하지 않는다.
- * 채널 사용 승인은 channels/{channelId}/members/{uid}에서 관리한다.
- */
-async function ensureUserProfile(user) {
-  const userRef = doc(db, "users", user.uid);
-  const userSnap = await getDoc(userRef);
 
-  if (userSnap.exists()) {
-    const profile = userSnap.data();
-    const changes = {};
+/* =========================================================
+   users/{uid} 자동 생성
+========================================================= */
 
-    if (!profile.email && user.email) {
-      changes.email = user.email;
-    }
+async function ensureUserProfile(
+  user
+) {
 
-    if (!profile.name && user.displayName) {
-      changes.name = user.displayName;
-    }
+  const userRef =
+    doc(
+      db,
+      "users",
+      user.uid
+    );
 
-    /*
-     * 기존 developer 계정은 절대 user로 덮어쓰지 않는다.
-     */
-    if (
-      !profile.platformRole &&
-      profile.role !== "developer"
-    ) {
-      changes.platformRole = "user";
-    }
 
-    if (Object.keys(changes).length > 0) {
-      changes.updatedAt = serverTimestamp();
+  const snapshot =
+    await getDoc(
+      userRef
+    );
 
-      await setDoc(
-        userRef,
-        changes,
-        {
-          merge: true
-        }
-      );
-    }
-
-    return;
-  }
 
   /*
-   * 신규 Google 사용자
-   *
-   * status는 기존 코드/데이터 호환용으로만 남긴다.
-   * 실제 채널 접근 여부 판단에는 사용하지 않는다.
+   * 기존 사용자
    */
-  await setDoc(userRef, {
-    name:
-      user.displayName ||
-      user.email ||
-      "사용자",
+  if (
+    snapshot.exists()
+  ) {
 
-    email:
-      user.email || "",
+    const data =
+      snapshot.data();
 
-    platformRole:
-      "user",
 
-    role:
-      "user",
+    const developer =
+      data.platformRole ===
+        "developer" ||
+      data.role ===
+        "developer";
 
-    status:
-      "approved",
 
-    createdAt:
-      serverTimestamp(),
+    const patch = {
+      updatedAt:
+        serverTimestamp()
+    };
 
-    updatedAt:
-      serverTimestamp()
-  });
-}
 
-async function moveToChannels(user) {
-  if (redirecting) {
+    if (
+      !data.name &&
+      user.displayName
+    ) {
+
+      patch.name =
+        user.displayName;
+    }
+
+
+    if (
+      !data.email &&
+      user.email
+    ) {
+
+      patch.email =
+        user.email;
+    }
+
+
+    if (
+      !data.platformRole
+    ) {
+
+      patch.platformRole =
+        developer
+          ? "developer"
+          : "user";
+    }
+
+
+    if (
+      !data.role
+    ) {
+
+      patch.role =
+        developer
+          ? "developer"
+          : "user";
+    }
+
+
+    await updateDoc(
+      userRef,
+      patch
+    );
+
+
     return;
   }
 
-  await ensureUserProfile(user);
 
-  redirecting = true;
+  /*
+   * 최초 Google 로그인 사용자
+   */
+  await setDoc(
+    userRef,
+    {
+      name:
+        user.displayName ||
+        user.email ||
+        "사용자",
+
+      email:
+        user.email ||
+        "",
+
+      platformRole:
+        "user",
+
+      role:
+        "user",
+
+      /*
+       * 기존 코드 호환용 필드.
+       * 플랫폼 수동 승인에는 사용하지 않는다.
+       */
+      status:
+        "approved",
+
+      createdAt:
+        serverTimestamp(),
+
+      updatedAt:
+        serverTimestamp()
+    }
+  );
+}
+
+
+/* =========================================================
+   이동
+========================================================= */
+
+async function handleUser(
+  user
+) {
+
+  await ensureUserProfile(
+    user
+  );
+
 
   location.replace(
     `./channels.html?_fresh=${Date.now()}`
   );
 }
 
-/*
- * 이미 Google 로그인이 되어 있으면
- * 별도 승인 없이 바로 채널 선택 화면으로 이동
- */
+
+/* =========================================================
+   기존 로그인 상태
+========================================================= */
+
 onAuthStateChanged(
   auth,
-  async (user) => {
+  async (
+    user
+  ) => {
+
     if (
       !user ||
-      authFlowBusy ||
-      redirecting
+      busy
     ) {
       return;
     }
 
-    try {
-      setMessage("계정 정보를 확인하고 있습니다.");
 
-      await moveToChannels(user);
+    try {
+
+      setBusy(
+        true
+      );
+
+
+      await handleUser(
+        user
+      );
+
     } catch (error) {
-      console.error(error);
+
+      console.error(
+        "로그인 사용자 초기화 실패",
+        error
+      );
+
 
       setMessage(
-        error?.code === "permission-denied"
-          ? "사용자 정보를 저장할 권한이 없습니다. Firestore 규칙을 확인해주세요."
-          : "계정 정보를 확인하지 못했습니다. 잠시 후 다시 시도해주세요."
+        "계정 정보를 확인하지 못했습니다. 잠시 후 다시 시도해주세요."
+      );
+
+
+      setBusy(
+        false
       );
     }
   }
 );
 
-/*
- * Google 로그인
- */
-googleLoginButton?.addEventListener(
-  "click",
-  async () => {
-    authFlowBusy = true;
 
-    setGoogleButtonBusy(true);
-    setMessage("");
+/* =========================================================
+   Google 로그인
+========================================================= */
 
-    try {
-      const result =
-        await signInWithPopup(
-          auth,
-          googleProvider
-        );
+googleLoginButton
+  .addEventListener(
+    "click",
+    async () => {
 
-      await moveToChannels(
-        result.user
-      );
-    } catch (error) {
-      console.error(error);
-
-      let text =
-        "Google 로그인에 실패했습니다. 다시 시도해주세요.";
-
-      if (
-        error.code ===
-        "auth/popup-closed-by-user"
-      ) {
-        text =
-          "Google 로그인 창이 닫혔습니다.";
-      } else if (
-        error.code ===
-        "auth/popup-blocked"
-      ) {
-        text =
-          "브라우저에서 팝업이 차단되었습니다. 팝업을 허용해주세요.";
-      } else if (
-        error.code ===
-        "auth/account-exists-with-different-credential"
-      ) {
-        text =
-          "이 이메일은 기존 로그인 방식과 연결되어 있습니다.";
-      } else if (
-        error.code ===
-        "auth/unauthorized-domain"
-      ) {
-        text =
-          "현재 사이트 주소가 Firebase 승인 도메인에 등록되지 않았습니다.";
-      } else if (
-        error.code ===
-        "permission-denied"
-      ) {
-        text =
-          "사용자 정보를 저장할 권한이 없습니다. Firestore 규칙을 확인해주세요.";
+      if (busy) {
+        return;
       }
 
-      setMessage(text);
-    } finally {
-      authFlowBusy = false;
-      setGoogleButtonBusy(false);
+
+      setBusy(
+        true
+      );
+
+
+      setMessage("");
+
+
+      try {
+
+        const result =
+          await signInWithPopup(
+            auth,
+            provider
+          );
+
+
+        await handleUser(
+          result.user
+        );
+
+      } catch (error) {
+
+        console.error(
+          "Google 로그인 실패",
+          error
+        );
+
+
+        let text =
+          "Google 로그인에 실패했습니다. 다시 시도해주세요.";
+
+
+        if (
+          error.code ===
+          "auth/popup-closed-by-user"
+        ) {
+
+          text =
+            "Google 로그인 창이 닫혔습니다.";
+
+        } else if (
+          error.code ===
+          "auth/popup-blocked"
+        ) {
+
+          text =
+            "브라우저에서 팝업이 차단되었습니다. 팝업을 허용해주세요.";
+
+        } else if (
+          error.code ===
+          "auth/unauthorized-domain"
+        ) {
+
+          text =
+            "현재 사이트 주소가 Firebase 승인 도메인에 등록되지 않았습니다.";
+        }
+
+
+        setMessage(
+          text
+        );
+
+
+        setBusy(
+          false
+        );
+      }
     }
-  }
-);
+  );

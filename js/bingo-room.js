@@ -27,7 +27,7 @@ import {
   loadCurrentChannelContext,
   loadPlatformProfile,
   resolvedFeatureAccess
-} from "./channel-context.js?v=28";
+} from "./channel-context.js?v=33";
 
 if (location.search) window.history.replaceState(null, "", location.pathname + location.hash);
 
@@ -333,11 +333,36 @@ async function openInviteModal() {
 async function loadManageUsers() {
   if (!isRoomManager() || access !== "write" || isClosedRoom()) return;
   const snap = await getDocs(collection(db, "channels", currentContext.channelId, "members"));
-  allUsers = snap.docs.map((item) => ({ uid: item.id, ...item.data() })).filter((user) => user.uid !== roomData.ownerUid && user.status === "active").sort((a,b) => (a.name || a.email || "").localeCompare(b.name || b.email || "", "ko"));
+  allUsers = snap.docs.map((item) => ({ uid: item.id, ...item.data() })).filter((user) => user.uid !== roomData.ownerUid && ["approved", "active"].includes(
+  user.status
+)user.status === "active").sort((a,b) => (a.name || a.email || "").localeCompare(b.name || b.email || "", "ko"));
   participantDraft = new Set(roomData.participantUids || []); participantDraftDirty = false; renderManageUsers();
 }
-function canBeParticipant(user) { return user?.status === "active" && (["owner","admin"].includes(user.role) || ["read","write"].includes(user.bingoAccess)); }
-function canOwnRoom(user) { return user?.status === "active" && ["owner","admin"].includes(user.role); }
+function canBeParticipant(user) {
+  return (
+    ["approved", "active"].includes(
+      user?.status
+    ) &&
+    (
+      ["owner", "admin"].includes(
+        user.role
+      ) ||
+      ["read", "write"].includes(
+        user.bingoAccess
+      )
+    )
+  );
+}
+function canOwnRoom(user) {
+  return (
+    ["approved", "active"].includes(
+      user?.status
+    ) &&
+    ["owner", "admin"].includes(
+      user.role
+    )
+  );
+}
 function participantUser(uid) { return allUsers.find((user) => user.uid === uid) || { uid, name: "알 수 없는 사용자", email: "" }; }
 function participantStatusText(user) { return isPresenceOnline(presenceMap.get(user.uid)) ? "접속 중" : "초대됨"; }
 function participantMatches(user, term) { return !term || `${user.name || ""} ${user.email || ""}`.toLocaleLowerCase("ko").includes(term.toLocaleLowerCase("ko")); }
