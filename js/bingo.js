@@ -17,7 +17,6 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 import { deleteObject, ref as storageRef, uploadBytes } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
 import { BINGO_IMAGE_POLICY, compressBingoImage } from "./image-policy.js?v=28";
-import { initUserManagementModal } from "./admin-modal.js?v=28";
 import { firebaseErrorMessage } from "./error-messages.js?v=28";
 import {
   accessLabel,
@@ -580,7 +579,6 @@ onAuthStateChanged(auth, async (user) => {
     currentContext = await loadCurrentChannelContext(user, currentProfile);
     if (bingoAccess() === "none") throw new Error("이 채널에서 빙고를 이용할 권한이 없습니다.");
     loadFavorites();
-    if (isDeveloper(currentProfile)) initUserManagementModal(currentProfile);
     document.getElementById("userEmail").textContent = user.email || "";
     document.getElementById("currentChannelName").textContent = currentContext.channel.name || "HNSITE";
     const roleBadge = document.getElementById("roleBadge"); roleBadge.textContent = displayRole(currentContext); roleBadge.dataset.role = isDeveloper(currentProfile) ? "developer" : currentContext.member.role;

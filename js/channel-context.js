@@ -529,12 +529,10 @@ export function isSubscriptionExpired(
 /* =========================================================
    기능 권한
 ========================================================= */
-
 export function resolvedFeatureAccess(
   context,
   feature
 ) {
-
   if (
     !context?.channel ||
     !context?.member
@@ -542,92 +540,69 @@ export function resolvedFeatureAccess(
     return "none";
   }
 
-
-  /*
-   * 승인 대기자는
-   * 어떤 기능도 사용할 수 없음.
-   */
-  if (
-    isMemberPending(
-      context.member
-    ) &&
-    !isDeveloper(
-      context.profile
-    )
-  ) {
-    return "none";
-  }
-
-
   const enabled =
     feature === "bingo"
-
-      ? context.channel
-          .bingoEnabled ===
-        true
-
-      : context.channel
-          .killEnabled ===
-        true;
-
+      ? context.channel.bingoEnabled === true
+      : context.channel.killEnabled === true;
 
   if (!enabled) {
     return "none";
   }
 
+  /*
+   * developer는 활성화된 기능에 대해
+   * 항상 write 권한.
+   */
+  if (
+    isDeveloper(
+      context.profile
+    )
+  ) {
+    return "write";
+  }
+
+  if (
+    isMemberPending(
+      context.member
+    )
+  ) {
+    return "none";
+  }
 
   const expired =
     isSubscriptionExpired(
       context.channel
     );
 
-
   if (
     isChannelManager(
       context
     )
   ) {
-
-    return (
-      expired
-        ? "read"
-        : "write"
-    );
+    return expired
+      ? "read"
+      : "write";
   }
-
 
   const field =
     feature === "bingo"
-
       ? "bingoAccess"
-
       : "killSheetAccess";
 
-
   const memberAccess =
-    [
-      "read",
-      "write"
-    ].includes(
+    ["read", "write"].includes(
       context.member[field]
     )
-
       ? context.member[field]
-
       : "none";
-
 
   return (
     expired &&
-    memberAccess ===
-      "write"
-
-      ? "read"
-
-      : memberAccess
-  );
+    memberAccess === "write"
+  )
+    ? "read"
+    : memberAccess;
 }
-
 
 /* =========================================================
    화면 역할
