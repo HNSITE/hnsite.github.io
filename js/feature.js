@@ -4,6 +4,7 @@ import { firebaseErrorMessage } from "./error-messages.js";
 import { initChannelMemberApproval } from "./channel-members.js";
 import { initDeveloperChannelTools } from "./developer-channel-tools.js";
 import { initChannelOwnerTools } from "./channel-owner-tools.js";
+import { setTopbarContext } from "./topbar-menu.js";
 import { displayRole, isDeveloper, loadCurrentChannelContext, loadPlatformProfile, resolvedFeatureAccess,
   watchCurrentChannelAccess
 } from "./channel-context.js";
@@ -19,6 +20,7 @@ onAuthStateChanged(auth, async (user) => {
   try {
     const profile = await loadPlatformProfile(user);
     const context = await loadCurrentChannelContext(user, profile);
+    setTopbarContext({ user, profile, context });
     await initDeveloperChannelTools(user, profile, context);
     initChannelOwnerTools(user, profile, context);
     stopChannelAccessWatcher?.();

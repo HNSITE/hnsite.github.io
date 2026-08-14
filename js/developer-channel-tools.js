@@ -69,10 +69,13 @@ function ensureButtons() {
     manageButton.type = "button";
     manageButton.textContent = "전체 채널 관리";
 
-    const anchor =
+    const anchorCandidate =
       document.getElementById("openCreateChannelButton") ||
-      document.getElementById("globalCreateChannelButton") ||
-      nav.querySelector(".topbar-email");
+      document.getElementById("globalCreateChannelButton");
+    const anchor =
+      anchorCandidate?.parentElement === nav
+        ? anchorCandidate
+        : nav.querySelector(".topbar-email");
     nav.insertBefore(manageButton, anchor || nav.firstChild);
   }
 

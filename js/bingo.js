@@ -20,6 +20,7 @@ import { BINGO_IMAGE_POLICY, compressBingoImage } from "./image-policy.js";
 import { initChannelMemberApproval } from "./channel-members.js";
 import { initDeveloperChannelTools } from "./developer-channel-tools.js";
 import { initChannelOwnerTools } from "./channel-owner-tools.js";
+import { setTopbarContext } from "./topbar-menu.js";
 import { firebaseErrorMessage } from "./error-messages.js";
 import {
   accessLabel,
@@ -604,6 +605,7 @@ onAuthStateChanged(auth, async (user) => {
       await prepareRoomInviteChannel(user, currentProfile, linkedRoomMatch[1]);
     }
     currentContext = await loadCurrentChannelContext(user, currentProfile);
+    setTopbarContext({ user, profile: currentProfile, context: currentContext });
     await initDeveloperChannelTools(user, currentProfile, currentContext);
     initChannelOwnerTools(user, currentProfile, currentContext);
     stopChannelAccessWatcher?.();

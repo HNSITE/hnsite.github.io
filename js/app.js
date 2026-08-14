@@ -23,6 +23,10 @@ import {
   initChannelOwnerTools
 } from "./channel-owner-tools.js";
 
+import {
+  setTopbarContext
+} from "./topbar-menu.js";
+
 
 import {
   firebaseErrorMessage
@@ -256,6 +260,13 @@ onAuthStateChanged(
           user,
           profile
         );
+
+
+      setTopbarContext({
+        user,
+        profile,
+        context
+      });
 
 
       await initDeveloperChannelTools(

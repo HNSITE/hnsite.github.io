@@ -58,6 +58,10 @@ import {
   initDeveloperChannelTools
 } from "./developer-channel-tools.js";
 
+import {
+  setTopbarContext
+} from "./topbar-menu.js";
+
 
 const CHANNEL_PAGE_SIZE = 8;
 const JOINED_PAGE_SIZE = 8;
@@ -3592,6 +3596,13 @@ onAuthStateChanged(
         await loadPlatformProfile(
           user
         );
+
+
+      setTopbarContext({
+        user,
+        profile: currentProfile,
+        context: null
+      });
 
 
       document
