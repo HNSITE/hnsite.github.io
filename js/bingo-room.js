@@ -21,6 +21,7 @@ import { initDeveloperChannelTools } from "./developer-channel-tools.js";
 import { initChannelOwnerTools } from "./channel-owner-tools.js";
 import { setTopbarContext } from "./topbar-menu.js";
 import { showConfirm, showNotice } from "./ui-dialog.js";
+import { uniqueNameKey } from "./name-registry.js";
 import {
   archiveRoomStorageKey,
   currentRoomStorageKey,
@@ -334,17 +335,91 @@ async function clearMyPresence() {
 
 window.addEventListener("pagehide", () => { clearMyPresence(); });
 
-function inviteUrl() { const url = new URL("./bingo.html", location.href); url.hash = `invite=${currentContext.channelId}:${roomId}`; return url.toString(); }
+function inviteRoomName() {
+  return String(roomData?.name || "빙고")
+    .replace(/[\r\n]+/g, " ")
+    .trim() || "빙고";
+}
+
+function inviteUrl() {
+  const url = new URL("./bingo.html", location.href);
+  const channelName = String(currentContext?.channel?.name || "").trim();
+  const roomName = inviteRoomName();
+
+  // 사용자에게는 채널 ID/방 ID를 노출하지 않습니다.
+  // 예: https://hnsite.github.io/bingo.html?channel=추랑#8월 빙고
+  return `${url.origin}${url.pathname}?channel=${channelName}#${roomName}`;
+}
+
+async function ensureRoomInviteName() {
+  const roomName = inviteRoomName();
+  const inviteKey = uniqueNameKey(roomName);
+  if (!inviteKey) throw new Error("빙고방 이름으로 초대 링크를 만들 수 없습니다.");
+
+  const inviteRef = doc(
+    db,
+    "channels",
+    currentContext.channelId,
+    "bingoInviteNames",
+    inviteKey
+  );
+
+  await runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(inviteRef);
+
+    if (snapshot.exists() && snapshot.data().roomId !== roomId) {
+      const error = new Error("같은 이름의 다른 빙고방이 이미 초대 링크를 사용하고 있습니다. 방 이름을 다르게 만들어주세요.");
+      error.code = "DUPLICATE_INVITE_ROOM_NAME";
+      throw error;
+    }
+
+    transaction.set(inviteRef, {
+      roomId,
+      roomName,
+      updatedAt: serverTimestamp()
+    });
+  });
+}
+
 async function openInviteModal() {
   if (!isRoomManager() || isClosedRoom()) return;
+
+  try {
+    await ensureRoomInviteName();
+  } catch (error) {
+    console.error("빙고방 초대 링크 준비 실패", error);
+    await showNotice(
+      error?.code === "DUPLICATE_INVITE_ROOM_NAME"
+        ? error.message
+        : firebaseErrorMessage(error, "초대 링크를 만들지 못했습니다.")
+    );
+    return;
+  }
+
+  const link = inviteUrl();
   let modal = document.getElementById("roomInviteModal");
   if (!modal) {
     modal = document.createElement("div"); modal.id = "roomInviteModal"; modal.className = "update-news-modal hidden";
     modal.innerHTML = `<div class="update-news-backdrop" data-close-invite></div><section class="invite-dialog" role="dialog" aria-modal="true"><div class="invite-head"><div><p class="eyebrow">INVITE</p><h2>빙고방 초대</h2><p>현재 채널의 승인된 멤버가 링크 또는 QR 코드로 참가할 수 있습니다.</p></div><button class="modal-close-button" data-close-invite type="button">×</button></div><div class="invite-body"><canvas id="inviteQrCanvas" width="220" height="220"></canvas><div class="invite-link-row"><input id="inviteLinkInput" readonly /><button id="copyInviteLinkButton" type="button">링크 복사</button></div></div></section>`;
-    document.body.appendChild(modal); modal.querySelectorAll("[data-close-invite]").forEach((el) => el.addEventListener("click", () => modal.classList.add("hidden"))); modal.querySelector("#copyInviteLinkButton").addEventListener("click", async () => { try { await navigator.clipboard.writeText(inviteUrl()); showRoomToast("초대 링크를 복사했습니다."); } catch (_) {} });
+    document.body.appendChild(modal);
+    modal.querySelectorAll("[data-close-invite]").forEach((el) => el.addEventListener("click", () => modal.classList.add("hidden")));
+    modal.querySelector("#copyInviteLinkButton").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(modal.querySelector("#inviteLinkInput").value);
+        showRoomToast("초대 링크를 복사했습니다.");
+      } catch (_) {}
+    });
   }
-  modal.querySelector("#inviteLinkInput").value = inviteUrl(); modal.classList.remove("hidden");
-  try { const QRCode = await import("https://cdn.jsdelivr.net/npm/qrcode@1.5.4/+esm"); await QRCode.toCanvas(modal.querySelector("#inviteQrCanvas"), inviteUrl(), { width: 220, margin: 1 }); } catch (error) { console.error("QR 생성 실패", error); }
+
+  modal.querySelector("#inviteLinkInput").value = link;
+  modal.classList.remove("hidden");
+
+  try {
+    const QRCode = await import("https://cdn.jsdelivr.net/npm/qrcode@1.5.4/+esm");
+    await QRCode.toCanvas(modal.querySelector("#inviteQrCanvas"), link, { width: 220, margin: 1 });
+  } catch (error) {
+    console.error("QR 생성 실패", error);
+  }
 }
 
 async function loadManageUsers() {
@@ -507,6 +582,10 @@ async function deleteRoom() {
     const batch=writeBatch(db);
     batch.delete(boardRef());
     batch.delete(roomRef());
+    const inviteKey = uniqueNameKey(roomData?.name || "");
+    if (inviteKey) {
+      batch.delete(doc(db, "channels", currentContext.channelId, "bingoInviteNames", inviteKey));
+    }
     if (!isClosedRoom() && roomData.ownerUid && roomData.ownerSlot) batch.delete(slotRef(roomData.ownerUid,roomData.ownerSlot));
     await batch.commit();
 

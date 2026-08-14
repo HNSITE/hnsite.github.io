@@ -22,6 +22,7 @@ import { initDeveloperChannelTools } from "./developer-channel-tools.js";
 import { initChannelOwnerTools } from "./channel-owner-tools.js";
 import { setTopbarContext } from "./topbar-menu.js";
 import { firebaseErrorMessage } from "./error-messages.js";
+import { normalizeUniqueName, resolveChannelByName, uniqueNameKey } from "./name-registry.js";
 import {
   accessLabel,
   archiveRoomStorageKey,
@@ -595,15 +596,96 @@ async function prepareRoomInviteChannel(user, profile, channelId) {
   setCurrentChannelId(user.uid, channelId);
 }
 
+function inviteRoomNameFromHash() {
+  const raw = String(location.hash || "").replace(/^#/, "").trim();
+  if (!raw || raw.startsWith("invite=")) return "";
+  try {
+    return decodeURIComponent(raw).trim();
+  } catch (_) {
+    return raw;
+  }
+}
+
+async function resolveNamedRoomInvite(user, profile, channelName, roomName) {
+  const resolvedChannel = await resolveChannelByName(channelName);
+  if (!resolvedChannel?.id) throw new Error("초대된 채널을 찾을 수 없습니다.");
+
+  await prepareRoomInviteChannel(user, profile, resolvedChannel.id);
+
+  const inviteKey = uniqueNameKey(roomName);
+  if (!inviteKey) throw new Error("빙고방 초대 링크가 올바르지 않습니다.");
+
+  const inviteSnapshot = await getDoc(
+    doc(db, "channels", resolvedChannel.id, "bingoInviteNames", inviteKey)
+  );
+
+  if (!inviteSnapshot.exists()) {
+    throw new Error("초대된 빙고방을 찾을 수 없습니다. 방장이 새 초대 링크를 다시 만들어주세요.");
+  }
+
+  const invite = inviteSnapshot.data();
+  if (
+    !invite.roomId ||
+    normalizeUniqueName(invite.roomName || "") !== normalizeUniqueName(roomName)
+  ) {
+    throw new Error("빙고방 초대 링크가 올바르지 않습니다.");
+  }
+
+  const roomSnapshot = await getDoc(
+    doc(db, "channels", resolvedChannel.id, "bingoRooms", invite.roomId)
+  );
+
+  if (!roomSnapshot.exists()) {
+    throw new Error("초대된 빙고방을 찾을 수 없습니다.");
+  }
+
+  const room = roomSnapshot.data();
+  if (
+    room.status !== "active" ||
+    room.inviteEnabled !== true ||
+    normalizeUniqueName(room.name || "") !== normalizeUniqueName(roomName)
+  ) {
+    throw new Error("현재 사용할 수 없는 빙고방 초대 링크입니다.");
+  }
+
+  return {
+    channelId: resolvedChannel.id,
+    roomId: invite.roomId
+  };
+}
+
 onAuthStateChanged(auth, async (user) => {
   if (!user) return location.replace("./index.html");
   try {
     currentUser = user;
     currentProfile = await loadPlatformProfile(user);
-    const linkedRoomMatch = location.hash.match(/^#invite=([^:]+):([A-Za-z0-9_-]+)$/);
-    if (linkedRoomMatch) {
-      await prepareRoomInviteChannel(user, currentProfile, linkedRoomMatch[1]);
+    const inviteParams = new URLSearchParams(location.search);
+    const inviteChannelName = inviteParams.get("channel")?.trim() || "";
+    const inviteRoomName = inviteRoomNameFromHash();
+
+    // 현재 초대 링크: ?channel={채널명}#방제
+    // 사용자에게 채널 ID와 방 ID를 노출하지 않습니다.
+    let namedInvite = null;
+    if (inviteChannelName && inviteRoomName) {
+      namedInvite = await resolveNamedRoomInvite(
+        user,
+        currentProfile,
+        inviteChannelName,
+        inviteRoomName
+      );
     }
+
+    // 이미 배포된 예전 ID 기반 링크는 호환용으로만 계속 처리합니다.
+    const inviteChannelId = inviteParams.get("inviteChannel") || "";
+    const inviteRoomId = inviteParams.get("inviteRoom") || "";
+    const legacyInviteMatch = location.hash.match(/^#invite=([^:]+):([A-Za-z0-9_-]+)$/);
+
+    if (!namedInvite && inviteChannelId && inviteRoomId) {
+      await prepareRoomInviteChannel(user, currentProfile, inviteChannelId);
+    } else if (!namedInvite && legacyInviteMatch) {
+      await prepareRoomInviteChannel(user, currentProfile, legacyInviteMatch[1]);
+    }
+
     currentContext = await loadCurrentChannelContext(user, currentProfile);
     setTopbarContext({ user, profile: currentProfile, context: currentContext });
     await initDeveloperChannelTools(user, currentProfile, currentContext);
@@ -622,8 +704,25 @@ onAuthStateChanged(auth, async (user) => {
     await refreshAll();
     try { await loadSelectableUsers(); } catch (error) { console.error("채널 멤버 목록 조회 실패", error); selectableUsers = []; }
     renderParticipantList();
-    const inviteMatch = location.hash.match(/^#invite=(?:[^:]+:)?([A-Za-z0-9_-]+)$/);
-    if (inviteMatch) { history.replaceState(null, "", location.pathname); await joinRoom(inviteMatch[1]); return; }
+    if (namedInvite?.roomId) {
+      history.replaceState(null, "", location.pathname);
+      await joinRoom(namedInvite.roomId);
+      return;
+    }
+
+    if (inviteChannelId && inviteRoomId) {
+      history.replaceState(null, "", location.pathname);
+      await joinRoom(inviteRoomId);
+      return;
+    }
+
+    // 기존에 배포된 초대 링크도 계속 사용할 수 있도록 호환합니다.
+    const legacyRoomMatch = location.hash.match(/^#invite=(?:[^:]+:)?([A-Za-z0-9_-]+)$/);
+    if (legacyRoomMatch) {
+      history.replaceState(null, "", location.pathname);
+      await joinRoom(legacyRoomMatch[1]);
+      return;
+    }
     loadingPanel.classList.add("hidden"); bingoContent.classList.remove("hidden"); joinPanel.classList.remove("hidden");
   } catch (error) {
     console.error(error);
