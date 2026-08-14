@@ -301,6 +301,7 @@ let cachedChannelRequests = [];
 let requestPage = 1;
 
 let selectedChannelRequestUid = null;
+let developerChannelIds = new Set();
 
 
 /* =========================================================
@@ -531,7 +532,7 @@ function makeMembershipCard(
       "select-channel-button";
 
     button.textContent =
-      "이 채널 사용";
+      "채널 입장";
 
 
     button.addEventListener(
@@ -811,6 +812,15 @@ async function loadMemberships() {
         collection(
           db,
           "channels"
+        )
+      );
+
+
+    developerChannelIds =
+      new Set(
+        snapshot.docs.map(
+          (item) =>
+            item.id
         )
       );
 
@@ -1119,6 +1129,103 @@ async function loadDirectoryChannels() {
             "ko"
           )
       );
+}
+
+
+/* =========================================================
+   삭제된 채널 검색 정보 정리
+   - channels 문서는 없는데 channelDirectory가 남아 있으면 검색에 노출될 수 있음
+   - channelNames 레지스트리도 함께 정리하여 삭제된 이름을 다시 사용할 수 있게 함
+========================================================= */
+
+async function cleanupDeletedChannelReferencesForDeveloper() {
+
+  if (!isDeveloper(currentProfile)) {
+    return;
+  }
+
+
+  try {
+
+    const [directorySnapshot, nameRegistrySnapshot] =
+      await Promise.all([
+        getDocs(
+          collection(
+            db,
+            "channelDirectory"
+          )
+        ),
+        getDocs(
+          collection(
+            db,
+            "channelNames"
+          )
+        )
+      ]);
+
+
+    const cleanupJobs = [];
+
+
+    directorySnapshot.docs.forEach(
+      (item) => {
+
+        if (
+          !developerChannelIds.has(
+            item.id
+          )
+        ) {
+
+          cleanupJobs.push(
+            deleteDoc(
+              item.ref
+            )
+          );
+        }
+      }
+    );
+
+
+    nameRegistrySnapshot.docs.forEach(
+      (item) => {
+
+        const channelId =
+          String(
+            item.data().channelId ||
+            ""
+          );
+
+
+        if (
+          channelId &&
+          !developerChannelIds.has(
+            channelId
+          )
+        ) {
+
+          cleanupJobs.push(
+            deleteDoc(
+              item.ref
+            )
+          );
+        }
+      }
+    );
+
+
+    if (cleanupJobs.length) {
+      await Promise.allSettled(
+        cleanupJobs
+      );
+    }
+
+  } catch (error) {
+
+    console.error(
+      "삭제된 채널 검색 정보 정리 실패",
+      error
+    );
+  }
 }
 
 
@@ -1461,7 +1568,7 @@ function renderDirectoryChannels() {
           "select-channel-button";
 
         button.textContent =
-          "이 채널 사용";
+          "채널 입장";
 
 
         button.addEventListener(
@@ -3675,6 +3782,9 @@ onAuthStateChanged(
 
 
       if (developer) {
+
+        await cleanupDeletedChannelReferencesForDeveloper();
+
 
         await syncChannelDirectoryForDeveloper();
 
