@@ -664,7 +664,22 @@ export function watchCurrentChannelAccess(
           return;
         }
 
-        const channel = snapshot.data();
+        const channel = {
+          id: snapshot.id,
+          ...snapshot.data()
+        };
+
+        context.channel = channel;
+
+        const legacyChannelName = document.getElementById("currentChannelName");
+        if (legacyChannelName) {
+          legacyChannelName.textContent = channel.name || "HNSITE";
+        }
+
+        window.dispatchEvent(new CustomEvent("hnsite:channel-updated", {
+          detail: { channel: { ...channel } }
+        }));
+
         if (feature === "bingo" && channel.bingoEnabled !== true) leaveFeature();
         if (feature === "kill" && channel.killEnabled !== true) leaveFeature();
       },
@@ -682,9 +697,28 @@ export function watchCurrentChannelAccess(
             return;
           }
 
-          const status = normalizeMemberStatus(snapshot.data().status);
+          const member = {
+            uid: snapshot.id,
+            ...snapshot.data(),
+            status: normalizeMemberStatus(snapshot.data().status)
+          };
+
+          context.member = member;
+
+          window.dispatchEvent(new CustomEvent("hnsite:membership-updated", {
+            detail: { member: { ...member } }
+          }));
+
+          const status = member.status;
           if (status === "pending" && allowPending) return;
-          if (status !== "approved") leaveChannel();
+          if (status !== "approved") {
+            leaveChannel();
+            return;
+          }
+
+          if (feature && resolvedFeatureAccess(context, feature) === "none") {
+            leaveFeature();
+          }
         },
         (error) => console.error("채널 멤버십 실시간 확인 실패", error)
       )

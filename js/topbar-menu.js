@@ -476,10 +476,51 @@ export function setTopbarContext({ user = null, profile = null, context = null }
   scheduleSync();
 }
 
+export function updateTopbarProfile(profile, user = null) {
+  if (profile) {
+    currentProfile = {
+      ...(currentProfile || {}),
+      ...profile
+    };
+  }
+
+  if (user) {
+    currentUser = user;
+  }
+
+  ensureShell();
+  renderProfile();
+  scheduleSync();
+}
+
+export function updateTopbarChannel(channel) {
+  if (!channel) return;
+
+  currentContext = {
+    ...(currentContext || {}),
+    channel: {
+      ...(currentContext?.channel || {}),
+      ...channel
+    }
+  };
+
+  ensureShell();
+  renderContext();
+  scheduleSync();
+}
+
 export function refreshTopbarMenu() {
   ensureShell();
   scheduleSync();
 }
+
+window.addEventListener("hnsite:profile-updated", (event) => {
+  updateTopbarProfile(event.detail?.profile || null, event.detail?.user || null);
+});
+
+window.addEventListener("hnsite:channel-updated", (event) => {
+  updateTopbarChannel(event.detail?.channel || null);
+});
 
 if (nav && header) {
   ensureShell();

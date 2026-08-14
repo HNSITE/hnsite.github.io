@@ -19,6 +19,7 @@ import {
   ref as storageRef
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
 import { isDeveloper, setCurrentChannelId } from "./channel-context.js";
+import { updateTopbarChannel } from "./topbar-menu.js";
 import { firebaseErrorMessage } from "./error-messages.js";
 import { showConfirm } from "./ui-dialog.js";
 import { openChannelMemberManagement } from "./channel-members.js";
@@ -918,10 +919,15 @@ async function saveManagedChannel(channel, card) {
   saveButton.textContent = "저장 중...";
 
   try {
-    const availability = await isChannelNameAvailable(name, channel.id);
-    if (!availability.available) throw new Error("CHANNEL_NAME_TAKEN");
-    const nameKey = availability.key;
     const oldNameKey = channel.nameKey || uniqueNameKey(channel.name || "");
+    const requestedNameKey = uniqueNameKey(name);
+    let nameKey = requestedNameKey;
+
+    if (requestedNameKey !== oldNameKey) {
+      const availability = await isChannelNameAvailable(name, channel.id);
+      if (!availability.available) throw new Error("CHANNEL_NAME_TAKEN");
+      nameKey = availability.key;
+    }
 
     const channelRef = doc(db, "channels", channel.id);
     const directoryRef = doc(db, "channelDirectory", channel.id);
@@ -1007,14 +1013,20 @@ async function saveManagedChannel(channel, card) {
 
     if (currentContext?.channelId === channel.id) {
       currentContext.channel = { ...currentContext.channel, ...channel };
-      setTimeout(() => {
-        if (status === "suspended") location.href = "./channels.html";
-        else location.reload();
-      }, 500);
-    } else {
-      await loadManagedChannels();
-      setTimeout(renderChannelManagement, 250);
+
+      if (status === "suspended") {
+        location.href = "./channels.html";
+        return;
+      }
+
+      updateTopbarChannel(currentContext.channel);
+      window.dispatchEvent(new CustomEvent("hnsite:channel-updated", {
+        detail: { channel: { ...currentContext.channel } }
+      }));
     }
+
+    await loadManagedChannels();
+    renderChannelManagement();
   } catch (error) {
     console.error("전체 채널 설정 저장 실패", error);
     message.textContent = error.message === "CHANNEL_NAME_TAKEN"

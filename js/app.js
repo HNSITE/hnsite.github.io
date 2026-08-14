@@ -45,6 +45,9 @@ import {
 
 
 let stopChannelAccessWatcher = null;
+let currentProfile = null;
+let currentContext = null;
+let currentUser = null;
 
 const loadingPanel =
   document.getElementById(
@@ -249,17 +252,22 @@ onAuthStateChanged(
 
     try {
 
-      const profile =
+      currentUser = user;
+
+      currentProfile =
         await loadPlatformProfile(
           user
         );
 
 
-      const context =
+      currentContext =
         await loadCurrentChannelContext(
           user,
-          profile
+          currentProfile
         );
+
+      const profile = currentProfile;
+      const context = currentContext;
 
 
       setTopbarContext({
@@ -485,6 +493,41 @@ onAuthStateChanged(
   }
 );
 
+
+window.addEventListener("hnsite:channel-updated", (event) => {
+  if (!currentContext || !event.detail?.channel) return;
+
+  currentContext.channel = {
+    ...currentContext.channel,
+    ...event.detail.channel
+  };
+
+  const channelName = currentContext.channel.name || "HNSITE";
+  const legacyChannelName = document.getElementById("currentChannelName");
+  if (legacyChannelName) legacyChannelName.textContent = channelName;
+
+  if (currentProfile && currentUser) {
+    const welcomeText = document.getElementById("welcomeText");
+    if (welcomeText) {
+      welcomeText.textContent = `${currentProfile.name || currentUser.displayName || "사용자"}님, ${channelName}에 접속했습니다.`;
+    }
+  }
+
+  applyServiceAccess(currentContext, "bingo", "bingoAccess", "bingoButton", "bingoCard");
+  applyServiceAccess(currentContext, "kill", "killAccess", "killButton", "killCard");
+});
+
+window.addEventListener("hnsite:membership-updated", (event) => {
+  if (!currentContext || !event.detail?.member) return;
+
+  currentContext.member = {
+    ...currentContext.member,
+    ...event.detail.member
+  };
+
+  applyServiceAccess(currentContext, "bingo", "bingoAccess", "bingoButton", "bingoCard");
+  applyServiceAccess(currentContext, "kill", "killAccess", "killButton", "killCard");
+});
 
 /* =========================================================
    로그아웃

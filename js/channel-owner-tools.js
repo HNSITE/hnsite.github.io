@@ -12,6 +12,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-storage.js";
 import { firebaseErrorMessage } from "./error-messages.js";
 import { isDeveloper } from "./channel-context.js";
+import { updateTopbarChannel } from "./topbar-menu.js";
 import {
   CHANNEL_PROFILE_IMAGE_POLICY,
   compressChannelProfileImage
@@ -301,7 +302,26 @@ async function checkChannelName() {
   const button = modal.querySelector("#channelOwnerNameCheck");
   button.disabled = true;
   try {
-    const result = await isChannelNameAvailable(input.value, currentContext.channelId);
+    const checked = validateChannelName(input.value);
+    const currentKey = currentContext.channel.nameKey || uniqueNameKey(currentContext.channel.name || "");
+
+    if (!checked.ok) {
+      message.textContent = checked.message;
+      message.classList.remove("success");
+      checkedChannelNameKey = "";
+      return;
+    }
+
+    if (checked.key === currentKey) {
+      input.value = checked.name;
+      checkedChannelNameKey = currentKey;
+      message.textContent = "현재 사용 중인 채널 이름입니다.";
+      message.classList.add("success");
+      modal.querySelector("#channelOwnerShareLink").value = buildChannelShareUrl(checked.name);
+      return;
+    }
+
+    const result = await isChannelNameAvailable(checked.name, currentContext.channelId);
     message.textContent = result.message;
     message.classList.toggle("success", result.available === true);
     checkedChannelNameKey = result.available ? result.key : "";
@@ -321,7 +341,7 @@ async function checkChannelName() {
 
 function createProfileStoragePath() {
   const random = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
-  return `channels/${currentContext.channelId}/profile/${Date.now()}-${random}.webp`;
+  return `channels/${currentContext.channelId}/profile/${currentUser.uid}/${Date.now()}-${random}.webp`;
 }
 
 async function safelyDeleteProfileObject(path) {
@@ -364,8 +384,12 @@ async function saveChannelSettings(event) {
   const oldPhotoPath = currentContext.channel.photoStoragePath || "";
 
   try {
-    const availability = await isChannelNameAvailable(checked.name, currentContext.channelId);
-    if (!availability.available) throw new Error("NAME_TAKEN");
+    const nameChanged = checked.key !== oldKey;
+
+    if (nameChanged) {
+      const availability = await isChannelNameAvailable(checked.name, currentContext.channelId);
+      if (!availability.available) throw new Error("NAME_TAKEN");
+    }
 
     if (selectedProfileBlob) {
       save.textContent = "사진 업로드 중...";
@@ -381,30 +405,43 @@ async function saveChannelSettings(event) {
     save.textContent = "정보 저장 중...";
     const channelRef = doc(db, "channels", currentContext.channelId);
     const directoryRef = doc(db, "channelDirectory", currentContext.channelId);
-    const newNameRef = channelNameRegistryRef(checked.key);
-    const oldNameRef = oldKey ? channelNameRegistryRef(oldKey) : null;
+    const newNameRef = nameChanged ? channelNameRegistryRef(checked.key) : null;
+    const oldNameRef = nameChanged && oldKey ? channelNameRegistryRef(oldKey) : null;
 
     await runTransaction(db, async (transaction) => {
       const channelSnapshot = await transaction.get(channelRef);
       const directorySnapshot = await transaction.get(directoryRef);
-      const newNameSnapshot = await transaction.get(newNameRef);
+      let newNameSnapshot = null;
       let oldNameSnapshot = null;
-      if (oldNameRef && oldNameRef.path !== newNameRef.path) {
+
+      if (newNameRef) {
+        newNameSnapshot = await transaction.get(newNameRef);
+      }
+      if (oldNameRef && oldNameRef.path !== newNameRef?.path) {
         oldNameSnapshot = await transaction.get(oldNameRef);
       }
 
       if (!channelSnapshot.exists()) throw new Error("CHANNEL_NOT_FOUND");
       if (channelSnapshot.data().ownerUid !== currentUser.uid) throw new Error("NOT_OWNER");
-      if (newNameSnapshot.exists() && newNameSnapshot.data().channelId !== currentContext.channelId) {
+
+      if (
+        nameChanged &&
+        newNameSnapshot?.exists() &&
+        newNameSnapshot.data().channelId !== currentContext.channelId
+      ) {
         throw new Error("NAME_TAKEN");
       }
 
-      transaction.set(newNameRef, {
-        channelId: currentContext.channelId,
-        name: checked.name,
-        createdAt: newNameSnapshot.exists() ? newNameSnapshot.data().createdAt || serverTimestamp() : serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
+      if (nameChanged && newNameRef) {
+        transaction.set(newNameRef, {
+          channelId: currentContext.channelId,
+          name: checked.name,
+          createdAt: newNameSnapshot?.exists()
+            ? newNameSnapshot.data().createdAt || serverTimestamp()
+            : serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+      }
 
       const channelUpdate = {
         name: checked.name,
@@ -426,7 +463,13 @@ async function saveChannelSettings(event) {
         });
       }
 
-      if (oldNameRef && oldNameRef.path !== newNameRef.path && oldNameSnapshot?.exists() && oldNameSnapshot.data().channelId === currentContext.channelId) {
+      if (
+        nameChanged &&
+        oldNameRef &&
+        oldNameRef.path !== newNameRef?.path &&
+        oldNameSnapshot?.exists() &&
+        oldNameSnapshot.data().channelId === currentContext.channelId
+      ) {
         transaction.delete(oldNameRef);
       }
     });
@@ -440,15 +483,40 @@ async function saveChannelSettings(event) {
     currentContext.channel.photoURL = newPhotoURL;
     if (newPhotoPath) currentContext.channel.photoStoragePath = newPhotoPath;
     checkedChannelNameKey = checked.key;
-    document.getElementById("currentChannelName").textContent = checked.name;
+
+    const legacyChannelName = document.getElementById("currentChannelName");
+    if (legacyChannelName) legacyChannelName.textContent = checked.name;
+
+    updateTopbarChannel(currentContext.channel);
+    window.dispatchEvent(new CustomEvent("hnsite:channel-updated", {
+      detail: {
+        channel: { ...currentContext.channel }
+      }
+    }));
+
+    const welcomeText = document.getElementById("welcomeText");
+    if (welcomeText) {
+      const displayName = currentProfile.name || currentUser.displayName || "사용자";
+      welcomeText.textContent = `${displayName}님, ${checked.name}에 접속했습니다.`;
+    }
+
+    const shareModal = document.getElementById("channelShareModal");
+    if (shareModal) {
+      const shareTitle = shareModal.querySelector("#channelShareTitle");
+      const shareLink = shareModal.querySelector("#channelShareLink");
+      if (shareTitle) shareTitle.textContent = `${checked.name} 공유`;
+      if (shareLink) shareLink.value = buildChannelShareUrl(checked.name);
+    }
+
     modal.querySelector("#channelOwnerShareLink").value = buildChannelShareUrl(checked.name);
     renderProfilePreview(newPhotoURL);
     resetSelectedProfileImage();
     modal.querySelector("#channelOwnerPhotoInput").value = "";
-    modal.querySelector("#channelOwnerPhotoStatus").textContent = "채널 프로필 사진이 저장되었습니다.";
+    modal.querySelector("#channelOwnerPhotoStatus").textContent = newPhotoPath
+      ? "채널 프로필 사진이 저장되었습니다."
+      : "현재 채널 프로필 사진입니다.";
     message.textContent = "채널 정보를 변경했습니다.";
     message.classList.add("success");
-    setTimeout(() => location.reload(), 700);
   } catch (error) {
     if (newPhotoPath) await safelyDeleteProfileObject(newPhotoPath);
     console.error("채널 정보 변경 실패", error);

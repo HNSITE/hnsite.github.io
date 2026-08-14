@@ -13,6 +13,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 import { firebaseErrorMessage } from "./error-messages.js";
 import { loadPlatformProfile } from "./channel-context.js";
+import { updateTopbarProfile } from "./topbar-menu.js";
 import {
   isUserNameAvailable,
   uniqueNameKey,
@@ -130,7 +131,25 @@ async function checkName() {
   button.disabled = true;
 
   try {
-    const result = await isUserNameAvailable(input.value, currentUser.uid);
+    const checked = validateUserName(input.value);
+    const currentKey = currentProfile.nameKey || uniqueNameKey(currentProfile.name || "");
+
+    if (!checked.ok) {
+      resultText.textContent = checked.message;
+      resultText.classList.remove("success");
+      checkedNameKey = "";
+      return;
+    }
+
+    if (checked.key === currentKey) {
+      input.value = checked.name;
+      checkedNameKey = currentKey;
+      resultText.textContent = "현재 사용 중인 사용자명입니다.";
+      resultText.classList.add("success");
+      return;
+    }
+
+    const result = await isUserNameAvailable(checked.name, currentUser.uid);
     resultText.textContent = result.message;
     resultText.classList.toggle("success", result.available === true);
     checkedNameKey = result.available ? result.key : "";
@@ -277,10 +296,23 @@ async function saveProfile(event) {
       nameKey: checked.key
     };
     checkedNameKey = checked.key;
+
+    updateTopbarProfile(currentProfile, currentUser);
+    window.dispatchEvent(new CustomEvent("hnsite:profile-updated", {
+      detail: {
+        profile: { ...currentProfile },
+        user: currentUser
+      }
+    }));
+
+    const welcomeText = document.getElementById("welcomeText");
+    const currentChannelName = document.getElementById("currentChannelName")?.textContent?.trim();
+    if (welcomeText && currentChannelName) {
+      welcomeText.textContent = `${checked.name}님, ${currentChannelName}에 접속했습니다.`;
+    }
+
     message.textContent = "사용자명을 변경했습니다.";
     message.classList.add("success");
-
-    setTimeout(() => location.reload(), 350);
   } catch (error) {
     console.error("사용자명 변경 실패", error);
     message.textContent = error.message === "NAME_TAKEN"
