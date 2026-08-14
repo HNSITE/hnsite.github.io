@@ -371,6 +371,43 @@ async function loadSelectableUsers() {
   user.status
 ) && (["owner", "admin"].includes(user.role) || ["read", "write"].includes(user.bingoAccess))).sort((a, b) => (a.name || a.email || "").localeCompare(b.name || b.email || "", "ko"));
 }
+
+
+function applySelectableUsersFromMembers(memberItems = []) {
+  if (!canCreateRoom()) {
+    selectableUsers = [];
+    renderParticipantList();
+    return;
+  }
+
+  selectableUsers = memberItems
+    .filter((user) =>
+      user.uid !== currentUser.uid &&
+      ["approved", "active"].includes(user.status) &&
+      (
+        ["owner", "admin"].includes(user.role) ||
+        ["read", "write"].includes(user.bingoAccess)
+      )
+    )
+    .sort((a, b) =>
+      (a.name || a.email || "").localeCompare(
+        b.name || b.email || "",
+        "ko"
+      )
+    );
+
+  const validUids = new Set(selectableUsers.map((user) => user.uid));
+  selectedParticipantUids = new Set(
+    [...selectedParticipantUids].filter((uid) => validUids.has(uid))
+  );
+  participantPage = 1;
+  renderParticipantList();
+}
+
+window.addEventListener("hnsite:channel-members-updated", (event) => {
+  if (!currentContext?.channelId || event.detail?.channelId !== currentContext.channelId) return;
+  applySelectableUsersFromMembers(event.detail?.members || []);
+});
 function matchesParticipantSearch(user, term) { return !term || `${user.name || ""} ${user.email || ""}`.toLocaleLowerCase("ko").includes(term.toLocaleLowerCase("ko")); }
 function renderPagination(container, totalItems, pageValue, onChange) {
   container.innerHTML = "";

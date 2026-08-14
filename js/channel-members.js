@@ -158,9 +158,67 @@ function currentItems() {
   return activeTab === "pending" ? pendingMembers() : approvedMembers();
 }
 
+
+function isDeveloperContext(context = activeContext) {
+  return (
+    context?.profile?.platformRole === "developer" ||
+    context?.profile?.role === "developer"
+  );
+}
+
+function canAssignAdminRole(context = activeContext) {
+  return isDeveloperContext(context) || context?.member?.role === "owner";
+}
+
+function canEditMemberRole(member) {
+  return Boolean(
+    member &&
+    member.role !== "owner" &&
+    canAssignAdminRole(activeContext)
+  );
+}
+
+function roleLabel(role) {
+  return {
+    owner: "소유자",
+    admin: "관리자",
+    member: "일반 사용자"
+  }[role] || "일반 사용자";
+}
+
+function normalizedSnapshotMembers(snapshot) {
+  return snapshot.docs
+    .map((item) => ({
+      uid: item.id,
+      ...item.data(),
+      status: normalizeMemberStatus(item.data().status)
+    }))
+    .sort((a, b) =>
+      (a.name || a.email || "").localeCompare(
+        b.name || b.email || "",
+        "ko"
+      )
+    );
+}
+
+function publishMemberSnapshot(context, snapshot) {
+  if (!context?.channelId || !snapshot) return;
+
+  window.dispatchEvent(
+    new CustomEvent("hnsite:channel-members-updated", {
+      detail: {
+        channelId: context.channelId,
+        members: normalizedSnapshotMembers(snapshot)
+      }
+    })
+  );
+}
+
 function renderPendingItem(member) {
   const item = document.createElement("article");
   item.className = "channel-request-item";
+  const canChooseRole = canAssignAdminRole(activeContext);
+
   item.innerHTML = `
     <div class="channel-request-info">
       <strong>${escapeHtml(member.name || member.email || "사용자")}</strong>
@@ -168,18 +226,28 @@ function renderPendingItem(member) {
       <small>채널 가입 승인 대기</small>
     </div>
     <div class="channel-request-actions">
+      ${canChooseRole ? `
+        <select class="channel-member-role-select" aria-label="승인 권한 선택">
+          <option value="member" selected>일반 사용자</option>
+          <option value="admin">관리자</option>
+        </select>
+      ` : '<span class="channel-member-status-pill">일반 사용자</span>'}
       <button class="approve-channel-member-button" type="button">승인</button>
     </div>`;
 
   item.querySelector(".approve-channel-member-button").addEventListener("click", async (event) => {
     const button = event.currentTarget;
+    const roleSelect = item.querySelector(".channel-member-role-select");
+    const role = canChooseRole ? roleSelect?.value || "member" : "member";
+
     button.disabled = true;
+    if (roleSelect) roleSelect.disabled = true;
     button.textContent = "승인 중...";
 
     try {
-      await approveMember(member);
+      await approveMember(member, role);
       const message = document.getElementById("channelMemberApprovalMessage");
-      message.textContent = `${member.name || member.email || "사용자"}님의 가입을 승인했습니다.`;
+      message.textContent = `${member.name || member.email || "사용자"}님을 ${roleLabel(role)} 권한으로 승인했습니다.`;
       message.classList.add("success");
     } catch (error) {
       console.error("채널 가입 승인 실패", error);
@@ -187,13 +255,13 @@ function renderPendingItem(member) {
       message.textContent = firebaseErrorMessage(error, "채널 가입 승인에 실패했습니다.");
       message.classList.remove("success");
       button.disabled = false;
+      if (roleSelect) roleSelect.disabled = false;
       button.textContent = "승인";
     }
   });
 
   return item;
 }
-
 
 function canKickMember(member) {
   if (!member || member.role === "owner") return false;
@@ -208,14 +276,56 @@ function renderApprovedItem(member) {
 
   const owner = member.role === "owner";
   const kickable = canKickMember(member);
+  const editableRole = canEditMemberRole(member);
+
   item.innerHTML = `
     <div class="channel-request-info">
       <strong>${escapeHtml(member.name || member.email || "사용자")}</strong>
+      <small>${escapeHtml(roleLabel(member.role))}</small>
     </div>
     <div class="channel-request-actions">
-      <span class="channel-member-status-pill">${owner ? "소유자" : "사용 중"}</span>
+      ${editableRole ? `
+        <select class="channel-member-role-select" aria-label="사용자 권한 변경">
+          <option value="member" ${member.role === "member" ? "selected" : ""}>일반 사용자</option>
+          <option value="admin" ${member.role === "admin" ? "selected" : ""}>관리자</option>
+        </select>
+        <button class="secondary compact-button save-channel-member-role-button" type="button">권한 저장</button>
+      ` : `<span class="channel-member-status-pill">${escapeHtml(roleLabel(member.role))}</span>`}
       ${kickable ? '<button class="danger-outline kick-channel-member-button" type="button">추방</button>' : ""}
     </div>`;
+
+  const roleButton = item.querySelector(".save-channel-member-role-button");
+  const roleSelect = item.querySelector(".channel-member-role-select");
+  if (roleButton && roleSelect) {
+    roleButton.disabled = roleSelect.value === member.role;
+    roleSelect.addEventListener("change", () => {
+      roleButton.disabled = roleSelect.value === member.role;
+    });
+
+    roleButton.addEventListener("click", async () => {
+      const nextRole = roleSelect.value;
+      if (nextRole === member.role) return;
+
+      roleButton.disabled = true;
+      roleSelect.disabled = true;
+      roleButton.textContent = "저장 중...";
+
+      try {
+        await updateMemberRole(member, nextRole);
+        const message = document.getElementById("channelMemberApprovalMessage");
+        message.textContent = `${member.name || member.email || "사용자"}님의 권한을 ${roleLabel(nextRole)}로 변경했습니다.`;
+        message.classList.add("success");
+      } catch (error) {
+        console.error("채널 사용자 권한 변경 실패", error);
+        const message = document.getElementById("channelMemberApprovalMessage");
+        message.textContent = firebaseErrorMessage(error, "사용자 권한 변경에 실패했습니다.");
+        message.classList.remove("success");
+        roleButton.disabled = false;
+        roleSelect.disabled = false;
+        roleButton.textContent = "권한 저장";
+      }
+    });
+  }
 
   const kickButton = item.querySelector(".kick-channel-member-button");
   if (kickButton) {
@@ -353,13 +463,39 @@ async function kickMember(member) {
   await batch.commit();
 }
 
-async function approveMember(member) {
+async function updateMemberRole(member, nextRole) {
+  if (!canEditMemberRole(member) || !["member", "admin"].includes(nextRole)) {
+    throw new Error("이 사용자의 권한을 변경할 수 없습니다.");
+  }
+
   const channelId = activeContext.channelId;
   const memberRef = doc(db, "channels", channelId, "members", member.uid);
   const mirrorRef = doc(db, "users", member.uid, "memberships", channelId);
   const batch = writeBatch(db);
 
   batch.update(memberRef, {
+    role: nextRole,
+    updatedAt: serverTimestamp()
+  });
+
+  batch.update(mirrorRef, {
+    role: nextRole,
+    updatedAt: serverTimestamp()
+  });
+
+  await batch.commit();
+}
+
+async function approveMember(member, requestedRole = "member") {
+  const canChooseRole = canAssignAdminRole(activeContext);
+  const role = canChooseRole && requestedRole === "admin" ? "admin" : "member";
+  const channelId = activeContext.channelId;
+  const memberRef = doc(db, "channels", channelId, "members", member.uid);
+  const mirrorRef = doc(db, "users", member.uid, "memberships", channelId);
+  const batch = writeBatch(db);
+
+  batch.update(memberRef, {
+    role,
     status: "approved",
     bingoAccess: activeContext.channel.bingoEnabled === true ? "write" : "none",
     killSheetAccess: activeContext.channel.killEnabled === true ? "write" : "none",
@@ -368,6 +504,7 @@ async function approveMember(member) {
   });
 
   batch.update(mirrorRef, {
+    role,
     status: "approved",
     joinedAt: serverTimestamp(),
     updatedAt: serverTimestamp()
@@ -389,15 +526,9 @@ function startModalWatcher(context) {
   modalUnsubscribe = onSnapshot(
     collection(db, "channels", context.channelId, "members"),
     (snapshot) => {
-      members = snapshot.docs
-        .map((item) => ({
-          uid: item.id,
-          ...item.data(),
-          status: normalizeMemberStatus(item.data().status)
-        }))
-        .filter((member) => ["pending", "approved"].includes(member.status))
-        .sort((a, b) => (a.name || a.email || "").localeCompare(b.name || b.email || "", "ko"));
-
+      const normalized = normalizedSnapshotMembers(snapshot);
+      members = normalized.filter((member) => ["pending", "approved"].includes(member.status));
+      publishMemberSnapshot(context, snapshot);
       render();
     },
     (error) => console.error("채널 사용자 조회 실패", error)
@@ -453,6 +584,7 @@ function startDefaultBadgeWatcher() {
         (item) => normalizeMemberStatus(item.data().status) === "pending"
       ).length;
       setTopbarBadge(pending);
+      publishMemberSnapshot(defaultContext, snapshot);
     },
     (error) => console.error("채널 가입 대기 조회 실패", error)
   );

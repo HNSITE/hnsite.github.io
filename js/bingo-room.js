@@ -436,6 +436,36 @@ async function loadManageUsers() {
     );
   participantDraft = new Set(roomData.participantUids || []); participantDraftDirty = false; renderManageUsers();
 }
+
+
+function applyManageUsersFromMembers(memberItems = []) {
+  if (!isRoomManager() || access !== "write" || isClosedRoom() || !roomData) return;
+
+  allUsers = memberItems
+    .filter((user) =>
+      user.uid !== roomData.ownerUid &&
+      ["approved", "active"].includes(user.status)
+    )
+    .sort((a, b) =>
+      (a.name || a.email || "").localeCompare(
+        b.name || b.email || "",
+        "ko"
+      )
+    );
+
+  if (!participantDraftDirty) {
+    participantDraft = new Set(roomData.participantUids || []);
+  }
+
+  currentParticipantPage = 1;
+  availableParticipantPage = 1;
+  renderManageUsers();
+}
+
+window.addEventListener("hnsite:channel-members-updated", (event) => {
+  if (!currentContext?.channelId || event.detail?.channelId !== currentContext.channelId) return;
+  applyManageUsersFromMembers(event.detail?.members || []);
+});
 function canBeParticipant(user) {
   return (
     ["approved", "active"].includes(
@@ -555,12 +585,49 @@ async function transferOwner(targetUser) {
 }
 
 async function leaveRoom() {
-  if (roomData.ownerUid === currentUser.uid || !(roomData.participantUids || []).includes(currentUser.uid) || isClosedRoom()) return;
-  if (!await showConfirm("이 빙고방 참가 목록에서 나갈까요?", { title: "빙고방 나가기", confirmText: "나가기", danger: true })) return;
+  if (!roomData || !currentUser || isClosedRoom()) return;
+
+  const developer = isDeveloper(currentProfile);
+  const participantUids = roomData.participantUids || [];
+  const isParticipant = participantUids.includes(currentUser.uid);
+  const isOwner = roomData.ownerUid === currentUser.uid;
+
+  // developer는 모든 방에 가상 관리자 권한으로 접근할 수 있으므로
+  // 실제 참가자가 아니거나 방장인 경우에는 데이터 변경 없이 목록으로 나갑니다.
+  if (developer && (!isParticipant || isOwner)) {
+    await clearMyPresence();
+    sessionStorage.removeItem(currentRoomStorageKey(currentContext.channelId));
+    sessionStorage.removeItem(archiveRoomStorageKey(currentContext.channelId));
+    location.replace("./bingo.html");
+    return;
+  }
+
+  if (isOwner || !isParticipant) return;
+
+  if (!await showConfirm(
+    "이 빙고방 참가 목록에서 나갈까요?",
+    { title: "빙고방 나가기", confirmText: "나가기", danger: true }
+  )) return;
+
   try {
-    await runTransaction(db, async (transaction) => { const snap = await transaction.get(roomRef()); if (!snap.exists()) return; const participants = snap.data().participantUids || []; transaction.update(roomRef(), { participantUids: participants.filter((uid)=>uid!==currentUser.uid), updatedAt: serverTimestamp() }); });
-    sessionStorage.removeItem(currentRoomStorageKey(currentContext.channelId)); location.replace("./bingo.html");
-  } catch (error) { console.error(error); setMessage(firebaseErrorMessage(error, "방 나가기에 실패했습니다.")); }
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(roomRef());
+      if (!snap.exists()) return;
+      const participants = snap.data().participantUids || [];
+      transaction.update(roomRef(), {
+        participantUids: participants.filter((uid) => uid !== currentUser.uid),
+        updatedAt: serverTimestamp()
+      });
+    });
+
+    await clearMyPresence();
+    sessionStorage.removeItem(currentRoomStorageKey(currentContext.channelId));
+    sessionStorage.removeItem(archiveRoomStorageKey(currentContext.channelId));
+    location.replace("./bingo.html");
+  } catch (error) {
+    console.error(error);
+    setMessage(firebaseErrorMessage(error, "방 나가기에 실패했습니다."));
+  }
 }
 async function closeRoom() {
   if (!isRoomManager() || isClosedRoom()) return;
@@ -606,16 +673,75 @@ async function attemptAutoClose() {
 }
 
 function renderRoomHeader() {
-  document.getElementById("roomTitle").textContent=roomData.name||"빙고"; const status=isClosedRoom()?"종료":"진행 중"; document.getElementById("roomMeta").textContent=`${roomData.size} × ${roomData.size} · ${roomBoardTypeLabel()} · ${status} · 방장 ${roomData.ownerName||"-"}`; document.getElementById("boardPermission").textContent=isClosedRoom()?"권한: 결과 보기":`권한: ${access==="write"?"사용":"보기"}`; roomClosedNotice.classList.toggle("hidden",!isClosedRoom()); roomActions.innerHTML="";
+  document.getElementById("roomTitle").textContent=roomData.name||"빙고";
+  const status=isClosedRoom()?"종료":"진행 중";
+  document.getElementById("roomMeta").textContent=`${roomData.size} × ${roomData.size} · ${roomBoardTypeLabel()} · ${status} · 방장 ${roomData.ownerName||"-"}`;
+  document.getElementById("boardPermission").textContent=isClosedRoom()?"권한: 결과 보기":`권한: ${access==="write"?"사용":"보기"}`;
+  roomClosedNotice.classList.toggle("hidden",!isClosedRoom());
+  roomActions.innerHTML="";
+
+  const participantUids=roomData.participantUids||[];
+  const isCurrentParticipant=participantUids.includes(currentUser.uid);
+  const isCurrentOwner=roomData.ownerUid===currentUser.uid;
+
   if(isRoomManager()){
     if(!isClosedRoom()&&access==="write"){
-      const manage=document.createElement("button");manage.type="button";manage.className="secondary";manage.textContent="참가자 관리";manage.addEventListener("click",async()=>{const open=participantManagePanel.classList.contains("hidden");participantManagePanel.classList.toggle("hidden");manage.textContent=open?"참가자 관리 닫기":"참가자 관리";if(open&&!allUsers.length)await loadManageUsers();});roomActions.appendChild(manage);
-      const invite=document.createElement("button");invite.type="button";invite.className="secondary";invite.textContent="초대 링크 / QR";invite.addEventListener("click",openInviteModal);roomActions.appendChild(invite);
-      const close=document.createElement("button");close.type="button";close.className="secondary room-close-button";close.textContent="방 종료";close.addEventListener("click",closeRoom);roomActions.appendChild(close);
+      const manage=document.createElement("button");
+      manage.type="button";
+      manage.className="secondary";
+      manage.textContent="참가자 관리";
+      manage.addEventListener("click",async()=>{
+        const open=participantManagePanel.classList.contains("hidden");
+        participantManagePanel.classList.toggle("hidden");
+        manage.textContent=open?"참가자 관리 닫기":"참가자 관리";
+        if(open&&!allUsers.length)await loadManageUsers();
+      });
+      roomActions.appendChild(manage);
+
+      const invite=document.createElement("button");
+      invite.type="button";
+      invite.className="secondary";
+      invite.textContent="초대 링크 / QR";
+      invite.addEventListener("click",openInviteModal);
+      roomActions.appendChild(invite);
+
+      const close=document.createElement("button");
+      close.type="button";
+      close.className="secondary room-close-button";
+      close.textContent="방 종료";
+      close.addEventListener("click",closeRoom);
+      roomActions.appendChild(close);
     }
-    const del=document.createElement("button");del.type="button";del.className="danger";del.textContent=isClosedRoom()?"기록 삭제":"방 삭제";del.addEventListener("click",deleteRoom);roomActions.appendChild(del);
-  } else if(!isClosedRoom()&&(roomData.participantUids||[]).includes(currentUser.uid)) { const leave=document.createElement("button");leave.type="button";leave.className="danger-outline";leave.textContent="방 나가기";leave.addEventListener("click",leaveRoom);roomActions.appendChild(leave); }
-  renderResultSummary();renderPresence();scheduleAutoClose();
+
+    const del=document.createElement("button");
+    del.type="button";
+    del.className="danger";
+    del.textContent=isClosedRoom()?"기록 삭제":"방 삭제";
+    del.addEventListener("click",deleteRoom);
+    roomActions.appendChild(del);
+  }
+
+  /*
+   * 채널 owner/admin도 다른 사람이 만든 빙고방의 참가자일 수 있습니다.
+   * 기존에는 isRoomManager() 분기 때문에 관리자에게 '방 나가기'가
+   * 표시되지 않았습니다.
+   *
+   * 현재 방장이 아닌 실제 참가자라면 역할과 관계없이 방 나가기를 표시합니다.
+   * 방장은 먼저 참가자 관리에서 다른 관리자에게 방장을 위임한 뒤 나갈 수 있습니다.
+   */
+  const developer=isDeveloper(currentProfile);
+  if(!isClosedRoom()&&((isCurrentParticipant&&!isCurrentOwner)||developer)){
+    const leave=document.createElement("button");
+    leave.type="button";
+    leave.className="danger-outline";
+    leave.textContent="방 나가기";
+    leave.addEventListener("click",leaveRoom);
+    roomActions.appendChild(leave);
+  }
+
+  renderResultSummary();
+  renderPresence();
+  scheduleAutoClose();
 }
 
 function startRealtimeListeners() {
