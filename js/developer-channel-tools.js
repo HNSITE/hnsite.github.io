@@ -194,7 +194,6 @@ function ensureChannelManagementModal() {
         <div>
           <p class="eyebrow">CHANNEL CONTROL</p>
           <h2 id="globalChannelManagementTitle">전체 채널 관리</h2>
-          <p class="muted">모든 채널의 이용 상태와 제공 기능을 한 곳에서 관리합니다.</p>
         </div>
         <button class="modal-close-button" data-close-global-channel-management type="button" aria-label="닫기">×</button>
       </div>
@@ -792,7 +791,6 @@ function makeManagedChannelCard(channel) {
       <legend>사용 기능</legend>
       <label><input data-field="bingo" type="checkbox"${channel.bingoEnabled === true ? " checked" : ""} /> 빙고</label>
       <label><input data-field="kill" type="checkbox"${channel.killEnabled === true ? " checked" : ""} /> 킬내기</label>
-      <small>활성 상태에서는 하나 이상 선택해야 합니다. 비활성화하면 모든 기능 사용권이 해제됩니다.</small>
     </fieldset>
 
     <p class="message global-channel-management-card-message"></p>

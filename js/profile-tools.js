@@ -62,7 +62,6 @@ function ensureModal() {
         <div>
           <p class="eyebrow">MY PROFILE</p>
           <h2 id="profileManageTitle">내 정보</h2>
-          <p class="muted">HNSITE에서 표시되는 사용자명을 관리합니다.</p>
         </div>
         <button class="modal-close-button" data-close-profile type="button" aria-label="닫기">×</button>
       </div>
