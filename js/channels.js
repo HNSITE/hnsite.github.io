@@ -83,6 +83,22 @@ const channelContent =
   );
 
 
+const favoriteChannelSection =
+  document.getElementById(
+    "favoriteChannelSection"
+  );
+
+const favoriteChannelList =
+  document.getElementById(
+    "favoriteChannelList"
+  );
+
+const favoriteChannelCount =
+  document.getElementById(
+    "favoriteChannelCount"
+  );
+
+
 const ownedChannelSection =
   document.getElementById(
     "ownedChannelSection"
@@ -284,6 +300,7 @@ const channelRequestsNext =
 
 let currentUser = null;
 let currentProfile = null;
+let favoriteChannelIds = new Set();
 
 let memberships = [];
 let directoryChannels = [];
@@ -405,6 +422,154 @@ function isOwnedMembership(
 
 
 /* =========================================================
+   채널 즐겨찾기
+========================================================= */
+
+function isFavoriteChannel(channelId) {
+  return favoriteChannelIds.has(channelId);
+}
+
+function favoriteChannelRef(channelId) {
+  return doc(
+    db,
+    "users",
+    currentUser.uid,
+    "favoriteChannels",
+    channelId
+  );
+}
+
+async function loadFavoriteChannels() {
+  if (!currentUser) {
+    favoriteChannelIds = new Set();
+    return;
+  }
+
+  const snapshot = await getDocs(
+    collection(
+      db,
+      "users",
+      currentUser.uid,
+      "favoriteChannels"
+    )
+  );
+
+  favoriteChannelIds = new Set(
+    snapshot.docs.map((item) => item.id)
+  );
+}
+
+async function cleanupUnavailableFavorites() {
+  if (!currentUser || !favoriteChannelIds.size) return;
+
+  const developer = isDeveloper(currentProfile);
+  const availableIds = new Set(
+    memberships
+      .filter((item) => developer || isMemberApproved(item))
+      .map(membershipChannelId)
+      .filter(Boolean)
+  );
+
+  const staleIds = [...favoriteChannelIds].filter(
+    (channelId) => !availableIds.has(channelId)
+  );
+
+  if (!staleIds.length) return;
+
+  await Promise.all(
+    staleIds.map(async (channelId) => {
+      try {
+        await deleteDoc(favoriteChannelRef(channelId));
+        favoriteChannelIds.delete(channelId);
+      } catch (error) {
+        console.warn("사용할 수 없는 즐겨찾기 채널 정리 실패", channelId, error);
+      }
+    })
+  );
+}
+
+function favoriteChannelItems() {
+  const developer = isDeveloper(currentProfile);
+
+  return memberships.filter((item) => {
+    const channelId = membershipChannelId(item);
+    if (!channelId || !isFavoriteChannel(channelId)) return false;
+    return developer || isMemberApproved(item);
+  });
+}
+
+function makeFavoriteButton(channelId, channelName = "채널") {
+  const button = document.createElement("button");
+  const favorite = isFavoriteChannel(channelId);
+
+  button.type = "button";
+  button.className = `channel-favorite-button${favorite ? " active" : ""}`;
+  button.textContent = favorite ? "★" : "☆";
+  button.title = favorite ? "즐겨찾기 해제" : "즐겨찾기 추가";
+  button.setAttribute(
+    "aria-label",
+    `${channelName} ${favorite ? "즐겨찾기 해제" : "즐겨찾기 추가"}`
+  );
+  button.setAttribute("aria-pressed", favorite ? "true" : "false");
+
+  button.addEventListener("click", async () => {
+    if (!currentUser || button.disabled) return;
+
+    button.disabled = true;
+
+    try {
+      if (isFavoriteChannel(channelId)) {
+        await deleteDoc(favoriteChannelRef(channelId));
+        favoriteChannelIds.delete(channelId);
+      } else {
+        await setDoc(favoriteChannelRef(channelId), {
+          channelId,
+          createdAt: serverTimestamp()
+        });
+        favoriteChannelIds.add(channelId);
+      }
+
+      renderFavoriteChannels();
+      renderMembershipSections();
+      renderDirectoryChannels();
+    } catch (error) {
+      console.error("채널 즐겨찾기 변경 실패", error);
+      setMessage(
+        firebaseErrorMessage(
+          error,
+          "채널 즐겨찾기를 변경하지 못했습니다."
+        )
+      );
+      button.disabled = false;
+    }
+  });
+
+  return button;
+}
+
+function renderFavoriteChannels() {
+  if (!favoriteChannelSection || !favoriteChannelList || !favoriteChannelCount) {
+    return;
+  }
+
+  const favorites = favoriteChannelItems();
+
+  favoriteChannelList.innerHTML = "";
+  favoriteChannelCount.textContent = `${favorites.length}개`;
+  favoriteChannelSection.classList.toggle("hidden", favorites.length === 0);
+
+  favorites.forEach((item) => {
+    favoriteChannelList.appendChild(
+      makeMembershipCard(
+        item,
+        !isDeveloper(currentProfile) && isOwnedMembership(item)
+      )
+    );
+  });
+}
+
+
+/* =========================================================
    가입/소유 채널 카드
 ========================================================= */
 
@@ -515,6 +680,15 @@ function makeMembershipCard(
       ".channel-card-actions"
     );
 
+  if (approved) {
+    card.querySelector(".channel-card-head")?.appendChild(
+      makeFavoriteButton(
+        channelId,
+        name
+      )
+    );
+  }
+
 
   const button =
     document.createElement(
@@ -603,6 +777,8 @@ function makeMembershipCard(
 ========================================================= */
 
 function renderMembershipSections() {
+
+  renderFavoriteChannels();
 
   if (
     isDeveloper(
@@ -1550,6 +1726,15 @@ function renderDirectoryChannels() {
         card.querySelector(
           ".channel-card-actions"
         );
+
+      if (developer) {
+        card.querySelector(".channel-card-head")?.appendChild(
+          makeFavoriteButton(
+            channel.id,
+            channel.name || "채널"
+          )
+        );
+      }
 
 
       const button =
@@ -3778,7 +3963,13 @@ onAuthStateChanged(
       }
 
 
+      await loadFavoriteChannels();
+
+
       await loadMemberships();
+
+
+      await cleanupUnavailableFavorites();
 
 
       if (developer) {

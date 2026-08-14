@@ -18,7 +18,7 @@ hr{border:0;border-top:1px solid #e5e7eb;margin:24px 0}.sub-title{font-size:18px
 .topbar-compact-trigger{min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:0 12px;border:1px solid #e7e1ed;border-radius:13px;background:#fff;color:#554c61;box-shadow:none;font-size:13px;font-weight:850;white-space:nowrap;transition:border-color .15s ease,background .15s ease,box-shadow .15s ease}
 .topbar-compact-trigger:hover{border-color:#cfc1e3;background:#faf8fd;box-shadow:0 6px 16px rgba(76,61,101,.06)}
 .topbar-trigger-label{max-width:138px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.topbar-channel-dot,.topbar-profile-initial{width:26px;height:26px;display:grid;place-items:center;flex:0 0 auto;border-radius:9px;background:#f0eaff;color:#7457bd;font-size:11px;font-weight:950}
+.topbar-channel-dot,.topbar-profile-initial{width:26px;height:26px;display:grid;place-items:center;flex:0 0 auto;overflow:hidden;border-radius:9px;background:#f0eaff;color:#7457bd;font-size:11px;font-weight:950}.topbar-avatar-image{width:100%;height:100%;display:block;object-fit:cover}
 .topbar-profile-initial{border-radius:50%;background:linear-gradient(145deg,#efe9ff,#f8f5ff)}
 .topbar-caret{color:#91879c;font-size:12px;line-height:1}
 .topbar-primary-links{display:flex;align-items:center;gap:2px;min-width:0}
@@ -1127,3 +1127,12 @@ body.modal-open{overflow:hidden}.update-news-button{display:inline-flex;align-it
 .visually-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
 @media(max-width:640px){.profile-manage-dialog,.channel-owner-settings-dialog,.channel-share-dialog{width:calc(100vw - 20px);border-radius:20px}.profile-manage-dialog .admin-modal-header,.channel-owner-settings-dialog .admin-modal-header,.channel-share-dialog .admin-modal-header{padding:21px 18px 17px;flex-direction:row;align-items:flex-start}.profile-manage-form,.channel-owner-settings-form{padding:20px 18px}.unique-name-row,.channel-share-link-row{grid-template-columns:1fr}.unique-name-row button,.channel-share-link-row button{width:100%}.channel-profile-photo-editor{align-items:center;flex-direction:column;padding:20px 16px;text-align:center}.channel-profile-photo-preview-wrap{width:112px;height:112px}.channel-profile-photo-controls{justify-items:center}.channel-profile-photo-controls small{max-width:290px}.profile-manage-dialog .channel-modal-actions,.channel-owner-settings-dialog .channel-modal-actions{display:grid;grid-template-columns:1fr 1fr}.profile-manage-dialog .channel-modal-actions button,.channel-owner-settings-dialog .channel-modal-actions button{width:100%}.channel-share-dialog .channel-share-link-row{margin:20px 18px 8px}.channel-share-dialog>.message{margin:0 18px 20px}}
 
+
+
+/* 채널 즐겨찾기 */
+.favorite-channel-section{padding-top:2px}
+.favorite-channel-section .channel-card{border-color:#e4d9f7;background:linear-gradient(145deg,#fff,#fcfaff)}
+.channel-favorite-button{width:40px;height:40px;display:grid;place-items:center;flex:0 0 auto;margin-left:auto;padding:0;border:1px solid #e5deef;border-radius:12px;background:#fff;color:#9a8fa6;box-shadow:none;font-size:22px;line-height:1;transition:transform .15s ease,border-color .15s ease,background .15s ease,color .15s ease}
+.channel-favorite-button:hover:not(:disabled){transform:translateY(-1px);border-color:#d5c5ef;background:#faf7ff;color:#765cc6}
+.channel-favorite-button.active{border-color:#d8c8f2;background:#f4eeff;color:#765cc6}
+.channel-favorite-button:disabled{opacity:.55}

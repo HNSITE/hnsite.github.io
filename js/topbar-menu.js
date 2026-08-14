@@ -117,7 +117,10 @@ function ensureShell() {
     channelWrap.className = "topbar-dropdown topbar-channel-wrap hidden";
     channelWrap.innerHTML = `
       <button id="topbarChannelTrigger" class="topbar-compact-trigger topbar-channel-trigger" type="button" aria-expanded="false">
-        <span class="topbar-channel-dot" aria-hidden="true">H</span>
+        <span id="topbarChannelAvatar" class="topbar-channel-dot" aria-hidden="true">
+          <img id="topbarChannelImage" class="topbar-avatar-image hidden" alt="" />
+          <span id="topbarChannelFallback">H</span>
+        </span>
         <span id="topbarChannelLabel" class="topbar-trigger-label">채널</span>
         <span class="topbar-caret" aria-hidden="true">⌄</span>
       </button>
@@ -173,7 +176,10 @@ function ensureShell() {
     profileWrap.className = "topbar-dropdown topbar-profile-wrap";
     profileWrap.innerHTML = `
       <button id="topbarProfileTrigger" class="topbar-compact-trigger topbar-profile-trigger" type="button" aria-expanded="false">
-        <span id="topbarProfileInitial" class="topbar-profile-initial" aria-hidden="true">H</span>
+        <span id="topbarProfileInitial" class="topbar-profile-initial" aria-hidden="true">
+          <img id="topbarProfileImage" class="topbar-avatar-image hidden" alt="" />
+          <span id="topbarProfileFallback">H</span>
+        </span>
         <span id="topbarProfileName" class="topbar-trigger-label">내 정보</span>
         <span class="topbar-caret" aria-hidden="true">⌄</span>
       </button>
@@ -303,6 +309,7 @@ function renderPrimaryLinks() {
 function renderContext() {
   const channelWrap = document.getElementById("topbarChannelWrap");
   const channelName = currentContext?.channel?.name || "";
+  const channelPhotoURL = currentContext?.channel?.photoURL || "";
 
   if (channelWrap) {
     channelWrap.classList.toggle("hidden", !channelName);
@@ -314,6 +321,13 @@ function renderContext() {
     setTextIfChanged(label, channelName);
     setTextIfChanged(menuName, channelName);
   }
+
+  renderAvatar(
+    "topbarChannelImage",
+    "topbarChannelFallback",
+    channelPhotoURL,
+    channelName.trim().charAt(0).toUpperCase() || "H"
+  );
 
   renderPrimaryLinks();
   renderProfile();
@@ -327,14 +341,48 @@ function setTextIfChanged(element, value) {
   }
 }
 
+function renderAvatar(imageId, fallbackId, photoURL, fallbackText = "H") {
+  const image = document.getElementById(imageId);
+  const fallback = document.getElementById(fallbackId);
+  if (!image || !fallback) return;
+
+  const url = String(photoURL || "").trim();
+  const fallbackValue = String(fallbackText || "H").trim().charAt(0).toUpperCase() || "H";
+  setTextIfChanged(fallback, fallbackValue);
+
+  if (!url) {
+    image.removeAttribute("src");
+    image.classList.add("hidden");
+    fallback.classList.remove("hidden");
+    return;
+  }
+
+  if (image.getAttribute("src") !== url) {
+    image.src = url;
+  }
+  image.classList.remove("hidden");
+  fallback.classList.add("hidden");
+
+  image.onerror = () => {
+    image.classList.add("hidden");
+    fallback.classList.remove("hidden");
+  };
+}
+
 function renderProfile() {
   const name = profileName();
   const email = profileEmail();
   const role = roleLabel();
   const initial = name.trim().charAt(0).toUpperCase() || "H";
+  const profilePhotoURL = currentUser?.photoURL || currentProfile?.photoURL || "";
 
   setTextIfChanged(document.getElementById("topbarProfileName"), name);
-  setTextIfChanged(document.getElementById("topbarProfileInitial"), initial);
+  renderAvatar(
+    "topbarProfileImage",
+    "topbarProfileFallback",
+    profilePhotoURL,
+    initial
+  );
   setTextIfChanged(document.getElementById("topbarProfileMenuName"), name);
   setTextIfChanged(document.getElementById("topbarProfileMenuEmail"), email);
   setTextIfChanged(document.getElementById("topbarProfileMenuRole"), role);
