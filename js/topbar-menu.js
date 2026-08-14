@@ -24,6 +24,15 @@ let currentContext = null;
 let currentUser = null;
 let observer = null;
 let syncQueued = false;
+let observerRunning = false;
+
+const OBSERVER_OPTIONS = {
+  childList: true,
+  subtree: true,
+  attributes: true,
+  characterData: true,
+  attributeFilter: ["class", "aria-hidden"]
+};
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -302,12 +311,20 @@ function renderContext() {
   if (channelName) {
     const label = document.getElementById("topbarChannelLabel");
     const menuName = document.getElementById("topbarChannelMenuName");
-    if (label) label.textContent = channelName;
-    if (menuName) menuName.textContent = channelName;
+    setTextIfChanged(label, channelName);
+    setTextIfChanged(menuName, channelName);
   }
 
   renderPrimaryLinks();
   renderProfile();
+}
+
+function setTextIfChanged(element, value) {
+  if (!element) return;
+  const next = String(value ?? "");
+  if (element.textContent !== next) {
+    element.textContent = next;
+  }
 }
 
 function renderProfile() {
@@ -316,17 +333,11 @@ function renderProfile() {
   const role = roleLabel();
   const initial = name.trim().charAt(0).toUpperCase() || "H";
 
-  const nameNode = document.getElementById("topbarProfileName");
-  const initialNode = document.getElementById("topbarProfileInitial");
-  const menuName = document.getElementById("topbarProfileMenuName");
-  const menuEmail = document.getElementById("topbarProfileMenuEmail");
-  const menuRole = document.getElementById("topbarProfileMenuRole");
-
-  if (nameNode) nameNode.textContent = name;
-  if (initialNode) initialNode.textContent = initial;
-  if (menuName) menuName.textContent = name;
-  if (menuEmail) menuEmail.textContent = email;
-  if (menuRole) menuRole.textContent = role;
+  setTextIfChanged(document.getElementById("topbarProfileName"), name);
+  setTextIfChanged(document.getElementById("topbarProfileInitial"), initial);
+  setTextIfChanged(document.getElementById("topbarProfileMenuName"), name);
+  setTextIfChanged(document.getElementById("topbarProfileMenuEmail"), email);
+  setTextIfChanged(document.getElementById("topbarProfileMenuRole"), role);
 }
 
 function isActionVisible(element) {
@@ -389,7 +400,7 @@ function syncManageBadge() {
     if (Number.isFinite(value)) count += value;
   });
 
-  badge.textContent = count > 99 ? "99+" : String(count);
+  setTextIfChanged(badge, count > 99 ? "99+" : String(count));
   badge.classList.toggle("hidden", count <= 0);
 }
 
@@ -402,37 +413,58 @@ function syncLegacyText() {
     wrap?.classList.remove("hidden");
     const label = document.getElementById("topbarChannelLabel");
     const menuName = document.getElementById("topbarChannelMenuName");
-    if (label) label.textContent = channelName;
-    if (menuName) menuName.textContent = channelName;
+    setTextIfChanged(label, channelName);
+    setTextIfChanged(menuName, channelName);
   }
+}
+
+function observeNav() {
+  if (!nav || !observer || observerRunning) return;
+  observer.observe(nav, OBSERVER_OPTIONS);
+  observerRunning = true;
+}
+
+function pauseObserver() {
+  if (!observer || !observerRunning) return;
+  observer.disconnect();
+  observer.takeRecords();
+  observerRunning = false;
 }
 
 function syncTopbar() {
   if (!nav) return;
-  syncKnownActions();
-  syncLegacyText();
-  renderProfile();
+
+  // topbar-menu 자체가 DOM을 수정할 때 MutationObserver가 다시
+  // syncTopbar를 호출하는 무한 루프가 생기지 않도록 잠시 감시를 멈춘다.
+  pauseObserver();
+
+  try {
+    syncKnownActions();
+    syncLegacyText();
+    renderProfile();
+  } finally {
+    observeNav();
+  }
 }
 
 function scheduleSync() {
   if (syncQueued) return;
   syncQueued = true;
-  queueMicrotask(() => {
+
+  requestAnimationFrame(() => {
     syncQueued = false;
     syncTopbar();
   });
 }
 
 function startObserver() {
-  if (!nav || observer) return;
-  observer = new MutationObserver(scheduleSync);
-  observer.observe(nav, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    characterData: true,
-    attributeFilter: ["class", "aria-hidden"]
-  });
+  if (!nav) return;
+
+  if (!observer) {
+    observer = new MutationObserver(scheduleSync);
+  }
+
+  observeNav();
 }
 
 export function setTopbarContext({ user = null, profile = null, context = null } = {}) {
