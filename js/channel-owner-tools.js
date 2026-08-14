@@ -370,7 +370,8 @@ async function saveChannelSettings(event) {
     return;
   }
 
-  const oldKey = currentContext.channel.nameKey || uniqueNameKey(currentContext.channel.name || "");
+  const storedKey = currentContext.channel.nameKey || "";
+  const oldKey = storedKey || uniqueNameKey(currentContext.channel.name || "");
   if (checked.key !== oldKey && checkedChannelNameKey !== checked.key) {
     message.textContent = "채널 이름 중복확인을 먼저 해주세요.";
     return;
@@ -385,6 +386,7 @@ async function saveChannelSettings(event) {
 
   try {
     const nameChanged = checked.key !== oldKey;
+    const needsNameRegistry = !storedKey || nameChanged;
 
     if (nameChanged) {
       const availability = await isChannelNameAvailable(checked.name, currentContext.channelId);
@@ -405,7 +407,7 @@ async function saveChannelSettings(event) {
     save.textContent = "정보 저장 중...";
     const channelRef = doc(db, "channels", currentContext.channelId);
     const directoryRef = doc(db, "channelDirectory", currentContext.channelId);
-    const newNameRef = nameChanged ? channelNameRegistryRef(checked.key) : null;
+    const newNameRef = needsNameRegistry ? channelNameRegistryRef(checked.key) : null;
     const oldNameRef = nameChanged && oldKey ? channelNameRegistryRef(oldKey) : null;
 
     await runTransaction(db, async (transaction) => {
@@ -425,14 +427,14 @@ async function saveChannelSettings(event) {
       if (channelSnapshot.data().ownerUid !== currentUser.uid) throw new Error("NOT_OWNER");
 
       if (
-        nameChanged &&
+        needsNameRegistry &&
         newNameSnapshot?.exists() &&
         newNameSnapshot.data().channelId !== currentContext.channelId
       ) {
         throw new Error("NAME_TAKEN");
       }
 
-      if (nameChanged && newNameRef) {
+      if (needsNameRegistry && newNameRef) {
         transaction.set(newNameRef, {
           channelId: currentContext.channelId,
           name: checked.name,
