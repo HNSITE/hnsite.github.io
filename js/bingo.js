@@ -19,6 +19,7 @@ import { deleteObject, ref as storageRef, uploadBytes } from "https://www.gstati
 import { BINGO_IMAGE_POLICY, compressBingoImage } from "./image-policy.js";
 import { initChannelMemberApproval } from "./channel-members.js";
 import { initDeveloperChannelTools } from "./developer-channel-tools.js";
+import { initChannelOwnerTools } from "./channel-owner-tools.js";
 import { firebaseErrorMessage } from "./error-messages.js";
 import {
   accessLabel,
@@ -30,8 +31,11 @@ import {
   loadCurrentChannelContext,
   loadPlatformProfile,
   resolvedFeatureAccess,
-  setCurrentChannelId
+  setCurrentChannelId,
+  watchCurrentChannelAccess
 } from "./channel-context.js";
+
+let stopChannelAccessWatcher = null;
 
 const loadingPanel = document.getElementById("loadingPanel");
 const bingoContent = document.getElementById("bingoContent");
@@ -502,8 +506,8 @@ async function createRoom(event) {
       transaction.set(newBoardRef, { checkedCells: {}, imagePath: "", chickenCount: 0, cellValues, lastAction: null, updatedAt: serverTimestamp() });
     });
     roomCreated = true;
-    await writeRoomAudit(cloneSourceRoomId ? "room_clone" : "room_create", { id: newRoomRef.id, name }, cloneSourceRoomId ? `원본 방 ${cloneSourceRoomId}` : `${boardTypeLabel({ boardType })} ${size}×${size}`);
     if (compressedImage) await uploadBytes(imageRef, compressedImage, { contentType: BINGO_IMAGE_POLICY.outputType, cacheControl: "private,max-age=3600" });
+    await writeRoomAudit(cloneSourceRoomId ? "room_clone" : "room_create", { id: newRoomRef.id, name }, cloneSourceRoomId ? `원본 방 ${cloneSourceRoomId}` : `${boardTypeLabel({ boardType })} ${size}×${size}`);
     openRoom(newRoomRef.id);
   } catch (error) {
     console.error(error);
@@ -568,8 +572,27 @@ roomSort?.addEventListener("change", () => { roomSortValue = roomSort.value; ren
 participantSearch.addEventListener("input", () => { participantSearchTerm = participantSearch.value.trim(); participantPage = 1; renderParticipantList(); });
 roomImage.addEventListener("change", () => { const file = roomImage.files?.[0]; if (!file) return imageUploadStatus.textContent = "사진을 선택하면 빙고판 생성 시 자동으로 압축 후 업로드합니다."; if (!file.type?.startsWith("image/")) { roomImage.value = ""; imageUploadStatus.textContent = "이미지 파일만 선택할 수 있습니다."; return; } imageUploadStatus.textContent = `선택: ${file.name} (${formatBytes(file.size)}) · 방 생성 시 자동 압축`; });
 document.getElementById("createRoomForm").addEventListener("submit", createRoom);
-document.getElementById("logoutButton").addEventListener("click", async () => { await signOut(auth); location.replace("./index.html"); });
+document.getElementById("logoutButton").addEventListener("click", async () => { stopChannelAccessWatcher?.(); await signOut(auth); location.replace("./index.html"); });
 updateAlphabetOptions();
+
+
+async function prepareRoomInviteChannel(user, profile, channelId) {
+  const channelSnapshot = await getDoc(doc(db, "channels", channelId));
+  if (!channelSnapshot.exists()) throw new Error("초대된 채널을 찾을 수 없습니다.");
+  const channel = channelSnapshot.data();
+  if (channel.status !== "active" || channel.bingoEnabled !== true) {
+    throw new Error("현재 빙고를 이용할 수 없는 채널입니다.");
+  }
+
+  if (!isDeveloper(profile)) {
+    const memberSnapshot = await getDoc(doc(db, "channels", channelId, "members", user.uid));
+    if (!memberSnapshot.exists() || !["approved", "active"].includes(memberSnapshot.data().status)) {
+      throw new Error("이 채널의 승인된 사용자만 빙고방 초대 링크를 사용할 수 있습니다.");
+    }
+  }
+
+  setCurrentChannelId(user.uid, channelId);
+}
 
 onAuthStateChanged(auth, async (user) => {
   if (!user) return location.replace("./index.html");
@@ -577,9 +600,14 @@ onAuthStateChanged(auth, async (user) => {
     currentUser = user;
     currentProfile = await loadPlatformProfile(user);
     const linkedRoomMatch = location.hash.match(/^#invite=([^:]+):([A-Za-z0-9_-]+)$/);
-    if (linkedRoomMatch) setCurrentChannelId(user.uid, linkedRoomMatch[1]);
+    if (linkedRoomMatch) {
+      await prepareRoomInviteChannel(user, currentProfile, linkedRoomMatch[1]);
+    }
     currentContext = await loadCurrentChannelContext(user, currentProfile);
     await initDeveloperChannelTools(user, currentProfile, currentContext);
+    initChannelOwnerTools(user, currentProfile, currentContext);
+    stopChannelAccessWatcher?.();
+    stopChannelAccessWatcher = watchCurrentChannelAccess(user, currentProfile, currentContext, { feature: "bingo" });
     initChannelMemberApproval(currentContext);
     if (bingoAccess() === "none") throw new Error("이 채널에서 빙고를 이용할 권한이 없습니다.");
     loadFavorites();

@@ -11,6 +11,7 @@ import {
 
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -44,6 +45,14 @@ import {
 import {
   showConfirm
 } from "./ui-dialog.js";
+
+import {
+  channelNameRegistryRef,
+  isChannelNameAvailable,
+  resolveChannelByName,
+  uniqueNameKey,
+  validateChannelName
+} from "./name-registry.js";
 
 import {
   initDeveloperChannelTools
@@ -927,11 +936,24 @@ async function loadMemberships() {
             if (
               !memberSnapshot.exists()
             ) {
-
-              return {
-                ...membership,
-                channel
-              };
+              try {
+                await deleteDoc(
+                  doc(
+                    db,
+                    "users",
+                    currentUser.uid,
+                    "memberships",
+                    membership.id
+                  )
+                );
+              } catch (cleanupError) {
+                console.warn(
+                  "유효하지 않은 멤버십 정리 실패",
+                  membership.id,
+                  cleanupError
+                );
+              }
+              return null;
             }
 
 
@@ -1103,99 +1125,76 @@ async function loadDirectoryChannels() {
 
 async function syncChannelDirectoryForDeveloper() {
 
-  if (
-    !isDeveloper(
-      currentProfile
-    )
-  ) {
+  if (!isDeveloper(currentProfile)) {
     return;
   }
 
-
-  for (
-    const item of memberships
-  ) {
-
-    const channel =
-      item.channel;
-
-
-    const owner =
-      usersByUid.get(
-        channel.ownerUid
-      );
-
-
-    const directoryRef =
-      doc(
-        db,
-        "channelDirectory",
-        channel.id
-      );
-
+  for (const item of memberships) {
+    const channel = item.channel;
+    const owner = usersByUid.get(channel.ownerUid);
+    const directoryRef = doc(db, "channelDirectory", channel.id);
+    const channelRef = doc(db, "channels", channel.id);
+    const name = channel.name || "HNSITE 채널";
 
     try {
-
-      const directorySnapshot =
-        await getDoc(
-          directoryRef
-        );
-
-
+      const directorySnapshot = await getDoc(directoryRef);
       const common = {
-        name:
-          channel.name ||
-          "HNSITE 채널",
-
-        photoURL:
-          channel.photoURL ||
-          "",
-
-        ownerName:
-          owner?.name ||
-          owner?.email ||
-          channel.ownerEmail ||
-          "",
-
-        status:
-          channel.status ||
-          "active",
-
-        updatedAt:
-          serverTimestamp()
+        name,
+        photoURL: channel.photoURL || "",
+        ownerName: owner?.name || owner?.email || channel.ownerEmail || "",
+        status: channel.status || "active",
+        updatedAt: serverTimestamp(),
+        ...(channel.nameKey ? { nameKey: channel.nameKey } : {})
       };
 
-
-      if (
-        directorySnapshot.exists()
-      ) {
-
-        await updateDoc(
-          directoryRef,
-          common
-        );
-
-      } else {
-
-        await setDoc(
-          directoryRef,
-          {
-            ...common,
-
-            createdAt:
-              channel.createdAt ||
-              serverTimestamp()
-          }
-        );
+      if (directorySnapshot.exists()) {
+        await updateDoc(directoryRef, common);
+        continue;
       }
 
-    } catch (error) {
+      const checked = validateChannelName(name);
+      if (!checked.ok) {
+        console.warn("채널 검색 목록 생성 생략: 잘못된 채널 이름", channel.id, name);
+        continue;
+      }
 
-      console.error(
-        "채널 검색 목록 동기화 실패",
-        channel.id,
-        error
-      );
+      const nameKey = channel.nameKey || checked.key;
+      const registryRef = channelNameRegistryRef(nameKey);
+
+      await runTransaction(db, async (transaction) => {
+        const liveChannel = await transaction.get(channelRef);
+        const registry = await transaction.get(registryRef);
+        if (!liveChannel.exists()) return;
+        if (registry.exists() && registry.data().channelId !== channel.id) {
+          throw new Error("CHANNEL_NAME_TAKEN");
+        }
+
+        if (!registry.exists()) {
+          transaction.set(registryRef, {
+            channelId: channel.id,
+            name,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+        }
+
+        if (liveChannel.data().nameKey !== nameKey) {
+          transaction.update(channelRef, {
+            nameKey,
+            updatedAt: serverTimestamp()
+          });
+        }
+
+        transaction.set(directoryRef, {
+          ...common,
+          nameKey,
+          createdAt: channel.createdAt || serverTimestamp()
+        });
+      });
+
+      channel.nameKey = nameKey;
+    } catch (error) {
+      console.error("채널 검색 목록 동기화 실패", channel.id, error);
     }
   }
 }
@@ -2224,9 +2223,13 @@ async function createChannel(
     );
 
 
+  const channelNameCheck =
+    validateChannelName(
+      nameInput.value
+    );
+
   const name =
-    nameInput.value
-      .trim();
+    channelNameCheck.name;
 
 
   const ownerUid =
@@ -2251,10 +2254,10 @@ async function createChannel(
     )?.checked === true;
 
 
-  if (!name) {
+  if (!channelNameCheck.ok) {
 
     setCreateMessage(
-      "채널 이름을 입력해주세요."
+      channelNameCheck.message
     );
 
 
@@ -2308,6 +2311,18 @@ async function createChannel(
 
 
   try {
+
+    const nameAvailability =
+      await isChannelNameAvailable(
+        name
+      );
+
+    if (!nameAvailability.available) {
+      throw new Error("CHANNEL_NAME_TAKEN");
+    }
+
+    const nameKey =
+      nameAvailability.key;
 
     let photoURL =
       "";
@@ -2364,6 +2379,12 @@ async function createChannel(
       );
 
 
+    const nameRegistryRef =
+      channelNameRegistryRef(
+        nameKey
+      );
+
+
     const requestRef =
       selectedChannelRequestUid
 
@@ -2382,10 +2403,41 @@ async function createChannel(
         transaction
       ) => {
 
+        const nameRegistrySnapshot =
+          await transaction.get(
+            nameRegistryRef
+          );
+
+        if (
+          nameRegistrySnapshot.exists()
+        ) {
+          throw new Error(
+            "CHANNEL_NAME_TAKEN"
+          );
+        }
+
+        transaction.set(
+          nameRegistryRef,
+          {
+            channelId:
+              channelRef.id,
+
+            name,
+
+            createdAt:
+              serverTimestamp(),
+
+            updatedAt:
+              serverTimestamp()
+          }
+        );
+
         transaction.set(
           channelRef,
           {
             name,
+
+            nameKey,
 
             photoURL,
 
@@ -2504,6 +2556,8 @@ async function createChannel(
           {
             name,
 
+            nameKey,
+
             photoURL,
 
             ownerName:
@@ -2606,10 +2660,12 @@ async function createChannel(
 
 
     setCreateMessage(
-      firebaseErrorMessage(
-        error,
-        "채널 생성에 실패했습니다."
-      )
+      error.message === "CHANNEL_NAME_TAKEN"
+        ? "이미 사용 중인 채널 이름입니다."
+        : firebaseErrorMessage(
+            error,
+            "채널 생성에 실패했습니다."
+          )
     );
 
   } finally {
@@ -3421,6 +3477,58 @@ document.addEventListener(
 );
 
 
+
+/* =========================================================
+   공유 채널 링크 처리
+   https://hnsite.github.io/?channel=채널명
+========================================================= */
+async function handleSharedChannelLink() {
+  const params = new URLSearchParams(location.search);
+  const sharedName = params.get("channel")?.trim() || "";
+  if (!sharedName || !currentUser || !currentProfile) return;
+
+  history.replaceState(null, "", location.pathname + location.hash);
+
+  const channel = await resolveChannelByName(sharedName);
+  if (!channel || channel.status !== "active") {
+    setMessage("공유된 채널을 찾을 수 없거나 현재 이용할 수 없습니다.");
+    return;
+  }
+
+  if (isDeveloper(currentProfile)) {
+    setCurrentChannelId(currentUser.uid, channel.id);
+    location.replace("./app.html");
+    return;
+  }
+
+  const membership = memberships.find((item) => membershipChannelId(item) === channel.id);
+  if (membership) {
+    setCurrentChannelId(currentUser.uid, channel.id);
+    location.replace("./app.html");
+    return;
+  }
+
+  const confirmed = await showConfirm(
+    `${channel.name || sharedName} 채널에 가입 신청할까요?`,
+    {
+      title: "채널 초대",
+      confirmText: "가입 신청"
+    }
+  );
+
+  if (!confirmed) return;
+
+  const temporaryButton = document.createElement("button");
+  await requestJoinChannel(channel, temporaryButton);
+
+  await loadMemberships();
+  const requested = memberships.find((item) => membershipChannelId(item) === channel.id);
+  if (requested) {
+    setCurrentChannelId(currentUser.uid, channel.id);
+    location.replace("./app.html");
+  }
+}
+
 /* =========================================================
    로그아웃
 ========================================================= */
@@ -3571,6 +3679,9 @@ onAuthStateChanged(
 
 
       renderDirectoryChannels();
+
+
+      await handleSharedChannelLink();
 
 
       loadingPanel

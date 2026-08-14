@@ -194,18 +194,27 @@ function renderPendingItem(member) {
   return item;
 }
 
+
+function canKickMember(member) {
+  if (!member || member.role === "owner") return false;
+  if (activeContext?.profile?.platformRole === "developer" || activeContext?.profile?.role === "developer") return true;
+  if (activeContext?.member?.role === "owner") return true;
+  return activeContext?.member?.role === "admin" && member.role === "member";
+}
+
 function renderApprovedItem(member) {
   const item = document.createElement("article");
   item.className = "channel-request-item channel-approved-member-item";
 
   const owner = member.role === "owner";
+  const kickable = canKickMember(member);
   item.innerHTML = `
     <div class="channel-request-info">
       <strong>${escapeHtml(member.name || member.email || "사용자")}</strong>
     </div>
     <div class="channel-request-actions">
       <span class="channel-member-status-pill">${owner ? "소유자" : "사용 중"}</span>
-      ${owner ? "" : '<button class="danger-outline kick-channel-member-button" type="button">추방</button>'}
+      ${kickable ? '<button class="danger-outline kick-channel-member-button" type="button">추방</button>' : ""}
     </div>`;
 
   const kickButton = item.querySelector(".kick-channel-member-button");
@@ -285,8 +294,8 @@ function render() {
 }
 
 async function kickMember(member) {
-  if (member.role === "owner") {
-    throw new Error("채널 소유자는 추방할 수 없습니다.");
+  if (!canKickMember(member)) {
+    throw new Error("이 사용자를 추방할 권한이 없습니다.");
   }
 
   const channelId = activeContext.channelId;

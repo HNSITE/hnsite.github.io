@@ -4,7 +4,8 @@ import {
 
 import {
   doc,
-  getDoc
+  getDoc,
+  onSnapshot
 } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
 
@@ -622,4 +623,76 @@ export function displayRole(
   return channelRoleLabel(
     context?.member?.role
   );
+}
+
+/* =========================================================
+   현재 채널 접근 상태 실시간 감시
+========================================================= */
+export function watchCurrentChannelAccess(
+  user,
+  profile,
+  context,
+  {
+    feature = null,
+    allowPending = false
+  } = {}
+) {
+  if (!user || !context?.channelId) return () => {};
+
+  let finished = false;
+  const unsubscribers = [];
+
+  const leaveChannel = () => {
+    if (finished) return;
+    finished = true;
+    clearCurrentChannelId(user.uid);
+    location.replace("./channels.html");
+  };
+
+  const leaveFeature = () => {
+    if (finished) return;
+    finished = true;
+    location.replace("./app.html");
+  };
+
+  unsubscribers.push(
+    onSnapshot(
+      doc(db, "channels", context.channelId),
+      (snapshot) => {
+        if (!snapshot.exists() || snapshot.data().status !== "active") {
+          leaveChannel();
+          return;
+        }
+
+        const channel = snapshot.data();
+        if (feature === "bingo" && channel.bingoEnabled !== true) leaveFeature();
+        if (feature === "kill" && channel.killEnabled !== true) leaveFeature();
+      },
+      (error) => console.error("채널 상태 실시간 확인 실패", error)
+    )
+  );
+
+  if (!isDeveloper(profile)) {
+    unsubscribers.push(
+      onSnapshot(
+        doc(db, "channels", context.channelId, "members", user.uid),
+        (snapshot) => {
+          if (!snapshot.exists()) {
+            leaveChannel();
+            return;
+          }
+
+          const status = normalizeMemberStatus(snapshot.data().status);
+          if (status === "pending" && allowPending) return;
+          if (status !== "approved") leaveChannel();
+        },
+        (error) => console.error("채널 멤버십 실시간 확인 실패", error)
+      )
+    );
+  }
+
+  return () => {
+    finished = true;
+    unsubscribers.forEach((unsubscribe) => unsubscribe?.());
+  };
 }

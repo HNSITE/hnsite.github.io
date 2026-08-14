@@ -1,0 +1,21 @@
+// Firebase Console > Storage > Rules 안의
+// service firebase.storage { match /b/{bucket}/o { ... } } 내부에 추가하세요.
+// 기존 bingoImages/channel-defaults 규칙은 삭제하지 마세요.
+
+match /channels/{channelId}/profile/{fileName} {
+  // 채널 목록에 프로필 사진을 표시해야 하므로 로그인 사용자는 읽을 수 있습니다.
+  allow read: if request.auth != null;
+
+  // 실제 채널 소유자만 프로필 이미지를 업로드/교체/삭제할 수 있습니다.
+  allow create, update: if request.auth != null
+    && firestore.get(
+      /databases/(default)/documents/channels/$(channelId)
+    ).data.ownerUid == request.auth.uid
+    && request.resource.size <= 1 * 1024 * 1024
+    && request.resource.contentType == "image/webp";
+
+  allow delete: if request.auth != null
+    && firestore.get(
+      /databases/(default)/documents/channels/$(channelId)
+    ).data.ownerUid == request.auth.uid;
+}

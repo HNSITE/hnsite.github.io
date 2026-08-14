@@ -3,9 +3,14 @@ import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/
 import { firebaseErrorMessage } from "./error-messages.js";
 import { initChannelMemberApproval } from "./channel-members.js";
 import { initDeveloperChannelTools } from "./developer-channel-tools.js";
-import { displayRole, isDeveloper, loadCurrentChannelContext, loadPlatformProfile, resolvedFeatureAccess } from "./channel-context.js";
+import { initChannelOwnerTools } from "./channel-owner-tools.js";
+import { displayRole, isDeveloper, loadCurrentChannelContext, loadPlatformProfile, resolvedFeatureAccess,
+  watchCurrentChannelAccess
+} from "./channel-context.js";
 
 const feature = document.body.dataset.feature;
+let stopChannelAccessWatcher = null;
+
 const loadingPanel = document.getElementById("loadingPanel");
 const featureContent = document.getElementById("featureContent");
 
@@ -15,6 +20,9 @@ onAuthStateChanged(auth, async (user) => {
     const profile = await loadPlatformProfile(user);
     const context = await loadCurrentChannelContext(user, profile);
     await initDeveloperChannelTools(user, profile, context);
+    initChannelOwnerTools(user, profile, context);
+    stopChannelAccessWatcher?.();
+    stopChannelAccessWatcher = watchCurrentChannelAccess(user, profile, context, { feature });
     initChannelMemberApproval(context);
     const access = resolvedFeatureAccess(context, feature === "bingo" ? "bingo" : "kill");
     if (access === "none") throw new Error("이 메뉴에 접근할 권한이 없습니다.");
@@ -34,4 +42,4 @@ onAuthStateChanged(auth, async (user) => {
   }
 });
 
-document.getElementById("logoutButton").addEventListener("click", async () => { await signOut(auth); location.replace("./index.html"); });
+document.getElementById("logoutButton").addEventListener("click", async () => { stopChannelAccessWatcher?.(); await signOut(auth); location.replace("./index.html"); });

@@ -22,6 +22,12 @@ import { isDeveloper, setCurrentChannelId } from "./channel-context.js";
 import { firebaseErrorMessage } from "./error-messages.js";
 import { showConfirm } from "./ui-dialog.js";
 import { openChannelMemberManagement } from "./channel-members.js";
+import {
+  channelNameRegistryRef,
+  isChannelNameAvailable,
+  uniqueNameKey,
+  validateChannelName
+} from "./name-registry.js";
 
 const REQUEST_PAGE_SIZE = 10;
 const CHANNEL_MANAGE_PAGE_SIZE = 6;
@@ -388,7 +394,8 @@ async function createChannel(event) {
   const ownerSelect = modal.querySelector("#globalChannelOwner");
   const message = modal.querySelector("#globalCreateChannelMessage");
   const submit = modal.querySelector("#globalCreateChannelSubmit");
-  const name = nameInput.value.trim();
+  const checkedName = validateChannelName(nameInput.value);
+  const name = checkedName.name;
   const ownerUid = ownerSelect.value;
   const owner = ownerUsersByUid.get(ownerUid);
   const bingoEnabled = modal.querySelector("#globalChannelFeatureBingo").checked;
@@ -397,8 +404,8 @@ async function createChannel(event) {
   message.textContent = "";
   message.classList.remove("success");
 
-  if (!name) {
-    message.textContent = "채널 이름을 입력해주세요.";
+  if (!checkedName.ok) {
+    message.textContent = checkedName.message;
     nameInput.focus();
     return;
   }
@@ -415,6 +422,10 @@ async function createChannel(event) {
   submit.textContent = "생성 중...";
 
   try {
+    const nameAvailability = await isChannelNameAvailable(name);
+    if (!nameAvailability.available) throw new Error("CHANNEL_NAME_TAKEN");
+    const nameKey = nameAvailability.key;
+
     let photoURL = "";
     try {
       photoURL = await getRandomChannelPhoto();
@@ -426,11 +437,23 @@ async function createChannel(event) {
     const memberRef = doc(db, "channels", channelRef.id, "members", ownerUid);
     const mirrorRef = doc(db, "users", ownerUid, "memberships", channelRef.id);
     const directoryRef = doc(db, "channelDirectory", channelRef.id);
+    const nameRegistryRef = channelNameRegistryRef(nameKey);
     const requestRef = selectedRequestUid ? doc(db, "channelCreationRequests", selectedRequestUid) : null;
 
     await runTransaction(db, async (transaction) => {
+      const nameRegistrySnapshot = await transaction.get(nameRegistryRef);
+      if (nameRegistrySnapshot.exists()) throw new Error("CHANNEL_NAME_TAKEN");
+
+      transaction.set(nameRegistryRef, {
+        channelId: channelRef.id,
+        name,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
       transaction.set(channelRef, {
         name,
+        nameKey,
         photoURL,
         ownerUid,
         ownerEmail: owner.email || "",
@@ -472,6 +495,7 @@ async function createChannel(event) {
 
       transaction.set(directoryRef, {
         name,
+        nameKey,
         photoURL,
         ownerName: owner.name || owner.email || "소유자",
         status: "active",
@@ -497,7 +521,7 @@ async function createChannel(event) {
     closeCreateModal();
   } catch (error) {
     console.error("채널 생성 실패", error);
-    message.textContent = firebaseErrorMessage(error, "채널 생성에 실패했습니다.");
+    message.textContent = error.message === "CHANNEL_NAME_TAKEN" ? "이미 사용 중인 채널 이름입니다." : firebaseErrorMessage(error, "채널 생성에 실패했습니다.");
   } finally {
     submit.disabled = false;
     submit.textContent = "채널 생성";
@@ -854,7 +878,8 @@ async function saveManagedChannel(channel, card) {
 
   const message = card.querySelector(".global-channel-management-card-message");
   const saveButton = card.querySelector(".save-managed-channel");
-  const name = card.querySelector('[data-field="name"]').value.trim();
+  const nameCheck = validateChannelName(card.querySelector('[data-field="name"]').value);
+  const name = nameCheck.name;
   const status = card.querySelector('[data-field="status"]').value;
   const subscriptionStatus = card.querySelector('[data-field="subscription"]').value;
   const subscriptionEndsAt = timestampFromDateInput(card.querySelector('[data-field="ends"]').value);
@@ -864,8 +889,8 @@ async function saveManagedChannel(channel, card) {
   message.textContent = "";
   message.classList.remove("success");
 
-  if (!name) {
-    message.textContent = "채널 이름을 입력해주세요.";
+  if (!nameCheck.ok) {
+    message.textContent = nameCheck.message;
     return;
   }
 
@@ -877,11 +902,7 @@ async function saveManagedChannel(channel, card) {
   if (channel.status === "active" && status === "suspended") {
     const confirmed = await showConfirm(
       `${channel.name || "선택한 채널"}을 비활성화할까요? 비활성화하면 모든 사용자의 빙고·킬내기 이용이 중지됩니다. 기존 데이터는 삭제되지 않습니다.`,
-      {
-        title: "채널 비활성화",
-        confirmText: "비활성화",
-        danger: true
-      }
+      { title: "채널 비활성화", confirmText: "비활성화", danger: true }
     );
     if (!confirmed) {
       card.querySelector('[data-field="status"]').value = channel.status || "active";
@@ -896,45 +917,79 @@ async function saveManagedChannel(channel, card) {
   saveButton.textContent = "저장 중...";
 
   try {
+    const availability = await isChannelNameAvailable(name, channel.id);
+    if (!availability.available) throw new Error("CHANNEL_NAME_TAKEN");
+    const nameKey = availability.key;
+    const oldNameKey = channel.nameKey || uniqueNameKey(channel.name || "");
+
     const channelRef = doc(db, "channels", channel.id);
     const directoryRef = doc(db, "channelDirectory", channel.id);
-    const directorySnapshot = await getDoc(directoryRef);
+    const newNameRef = channelNameRegistryRef(nameKey);
+    const oldNameRef = oldNameKey ? channelNameRegistryRef(oldNameKey) : null;
     const ownerName = managedOwnerLabel(channel);
-    const batch = writeBatch(db);
 
-    batch.update(channelRef, {
-      name,
-      status,
-      subscriptionStatus,
-      bingoEnabled,
-      killEnabled,
-      subscriptionEndsAt,
-      updatedAt: serverTimestamp()
+    await runTransaction(db, async (transaction) => {
+      const channelSnapshot = await transaction.get(channelRef);
+      const directorySnapshot = await transaction.get(directoryRef);
+      const newNameSnapshot = await transaction.get(newNameRef);
+      let oldNameSnapshot = null;
+      if (oldNameRef && oldNameRef.path !== newNameRef.path) {
+        oldNameSnapshot = await transaction.get(oldNameRef);
+      }
+
+      if (!channelSnapshot.exists()) throw new Error("CHANNEL_NOT_FOUND");
+      if (newNameSnapshot.exists() && newNameSnapshot.data().channelId !== channel.id) {
+        throw new Error("CHANNEL_NAME_TAKEN");
+      }
+
+      transaction.set(newNameRef, {
+        channelId: channel.id,
+        name,
+        createdAt: newNameSnapshot.exists() ? newNameSnapshot.data().createdAt || serverTimestamp() : serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      transaction.update(channelRef, {
+        name,
+        nameKey,
+        status,
+        subscriptionStatus,
+        bingoEnabled,
+        killEnabled,
+        subscriptionEndsAt,
+        updatedAt: serverTimestamp()
+      });
+
+      if (directorySnapshot.exists()) {
+        transaction.update(directoryRef, {
+          name,
+          nameKey,
+          photoURL: channel.photoURL || "",
+          ownerName,
+          status,
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        transaction.set(directoryRef, {
+          name,
+          nameKey,
+          photoURL: channel.photoURL || "",
+          ownerName,
+          status,
+          createdAt: channel.createdAt || serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+      }
+
+      if (oldNameRef && oldNameRef.path !== newNameRef.path && oldNameSnapshot?.exists() && oldNameSnapshot.data().channelId === channel.id) {
+        transaction.delete(oldNameRef);
+      }
     });
 
-    if (directorySnapshot.exists()) {
-      batch.update(directoryRef, {
-        name,
-        photoURL: channel.photoURL || "",
-        ownerName,
-        status,
-        updatedAt: serverTimestamp()
-      });
-    } else {
-      batch.set(directoryRef, {
-        name,
-        photoURL: channel.photoURL || "",
-        ownerName,
-        status,
-        createdAt: channel.createdAt || serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-    }
-
-    await batch.commit();
     await updateMemberAccesses(channel.id, status, bingoEnabled, killEnabled);
 
     channel.name = name;
+    channel.nameKey = nameKey;
     channel.status = status;
     channel.subscriptionStatus = subscriptionStatus;
     channel.subscriptionEndsAt = subscriptionEndsAt;
@@ -961,7 +1016,9 @@ async function saveManagedChannel(channel, card) {
     }
   } catch (error) {
     console.error("전체 채널 설정 저장 실패", error);
-    message.textContent = firebaseErrorMessage(error, "채널 설정을 저장하지 못했습니다.");
+    message.textContent = error.message === "CHANNEL_NAME_TAKEN"
+      ? "이미 사용 중인 채널 이름입니다."
+      : firebaseErrorMessage(error, "채널 설정을 저장하지 못했습니다.");
     message.classList.remove("success");
   } finally {
     saveButton.disabled = false;

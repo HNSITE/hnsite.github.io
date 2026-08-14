@@ -18,6 +18,7 @@ import { deleteObject, getDownloadURL, ref as storageRef } from "https://www.gst
 import { firebaseErrorMessage } from "./error-messages.js";
 import { initChannelMemberApproval } from "./channel-members.js";
 import { initDeveloperChannelTools } from "./developer-channel-tools.js";
+import { initChannelOwnerTools } from "./channel-owner-tools.js";
 import { showConfirm, showNotice } from "./ui-dialog.js";
 import {
   archiveRoomStorageKey,
@@ -27,10 +28,13 @@ import {
   isDeveloper,
   loadCurrentChannelContext,
   loadPlatformProfile,
-  resolvedFeatureAccess
+  resolvedFeatureAccess,
+  watchCurrentChannelAccess
 } from "./channel-context.js";
 
 if (location.search) window.history.replaceState(null, "", location.pathname + location.hash);
+
+let stopChannelAccessWatcher = null;
 
 const loadingPanel = document.getElementById("loadingPanel");
 const roomContent = document.getElementById("roomContent");
@@ -318,6 +322,17 @@ function startPresence() {
   presenceUnsubscribe = onSnapshot(presenceRef(), (snap) => { presenceMap = new Map(snap.docs.map((item) => [item.id, item.data()])); renderPresence(); }, (error) => console.error("접속 상태 조회 실패", error));
 }
 
+async function clearMyPresence() {
+  if (!roomId || !currentUser || !currentContext?.channelId) return;
+  try {
+    await deleteDoc(doc(db, "channels", currentContext.channelId, "bingoRooms", roomId, "presence", currentUser.uid));
+  } catch (error) {
+    if (error?.code !== "permission-denied") console.error("접속 상태 정리 실패", error);
+  }
+}
+
+window.addEventListener("pagehide", () => { clearMyPresence(); });
+
 function inviteUrl() { const url = new URL("./bingo.html", location.href); url.hash = `invite=${currentContext.channelId}:${roomId}`; return url.toString(); }
 async function openInviteModal() {
   if (!isRoomManager() || isClosedRoom()) return;
@@ -484,11 +499,22 @@ async function deleteRoom() {
   if (!isRoomManager()) return;
   if (!await showConfirm(isClosedRoom()?"보관된 빙고 결과, 기록과 사진이 모두 삭제됩니다.":"빙고 데이터, 치킨 기록과 사진이 모두 삭제됩니다.",{title:isClosedRoom()?"보관된 기록을 삭제할까요?":"이 빙고방을 삭제할까요?",confirmText:"삭제",danger:true})) return;
   try {
-    try { await deleteObject(boardImageRef); } catch (error) { if (error?.code!=="storage/object-not-found") throw error; }
     roomUnsubscribe?.(); boardUnsubscribe?.(); chickenLogsUnsubscribe?.(); presenceUnsubscribe?.(); clearInterval(presenceHeartbeat); clearTimeout(autoCloseTimer);
-    await deleteSubcollection(chickenLogsRef()); await deleteSubcollection(presenceRef()); await writeRoomAudit("room_delete",isClosedRoom()?"보관 기록 삭제":"빙고방 삭제");
-    const batch=writeBatch(db); batch.delete(boardRef()); batch.delete(roomRef()); if (!isClosedRoom() && roomData.ownerUid && roomData.ownerSlot) batch.delete(slotRef(roomData.ownerUid,roomData.ownerSlot)); await batch.commit();
-    sessionStorage.removeItem(currentRoomStorageKey(currentContext.channelId)); sessionStorage.removeItem(archiveRoomStorageKey(currentContext.channelId)); location.replace("./bingo.html");
+    await deleteSubcollection(chickenLogsRef());
+    await deleteSubcollection(presenceRef());
+
+    const batch=writeBatch(db);
+    batch.delete(boardRef());
+    batch.delete(roomRef());
+    if (!isClosedRoom() && roomData.ownerUid && roomData.ownerSlot) batch.delete(slotRef(roomData.ownerUid,roomData.ownerSlot));
+    await batch.commit();
+
+    await writeRoomAudit("room_delete",isClosedRoom()?"보관 기록 삭제":"빙고방 삭제");
+    try { await deleteObject(boardImageRef); } catch (error) { if (error?.code!=="storage/object-not-found") console.warn("빙고 사진 정리 실패", error); }
+
+    sessionStorage.removeItem(currentRoomStorageKey(currentContext.channelId));
+    sessionStorage.removeItem(archiveRoomStorageKey(currentContext.channelId));
+    location.replace("./bingo.html");
   } catch (error) { console.error(error); setMessage(firebaseErrorMessage(error,"방 삭제 중 오류가 발생했습니다.")); }
 }
 
@@ -524,13 +550,13 @@ function startRealtimeListeners() {
 
 selectAllCellsButton.addEventListener("click",()=>setAllCells(true));clearAllCellsButton.addEventListener("click",()=>setAllCells(false));undoBoardButton.addEventListener("click",undoLastBoardChange);decreaseChickenButton.addEventListener("click",()=>changeChickenCount(-1));increaseChickenButton.addEventListener("click",()=>changeChickenCount(1));chickenHistoryButton.addEventListener("click",()=>chickenHistoryPanel.classList.toggle("hidden"));closeChickenHistoryButton.addEventListener("click",()=>chickenHistoryPanel.classList.add("hidden"));printResultButton?.addEventListener("click",()=>window.print());document.addEventListener("visibilitychange",()=>{if(!document.hidden)touchPresence();});
 currentParticipantSearch.addEventListener("input",()=>{currentParticipantSearchTerm=currentParticipantSearch.value.trim();currentParticipantPage=1;renderManageUsers();});availableParticipantSearch.addEventListener("input",()=>{availableParticipantSearchTerm=availableParticipantSearch.value.trim();availableParticipantPage=1;renderManageUsers();});document.getElementById("saveParticipantsButton").addEventListener("click",saveParticipants);
-document.getElementById("logoutButton").addEventListener("click",async()=>{roomUnsubscribe?.();boardUnsubscribe?.();chickenLogsUnsubscribe?.();presenceUnsubscribe?.();clearInterval(presenceHeartbeat);clearTimeout(autoCloseTimer);await signOut(auth);location.replace("./index.html");});
+document.getElementById("logoutButton").addEventListener("click",async()=>{await clearMyPresence();roomUnsubscribe?.();boardUnsubscribe?.();chickenLogsUnsubscribe?.();presenceUnsubscribe?.();clearInterval(presenceHeartbeat);clearTimeout(autoCloseTimer);stopChannelAccessWatcher?.();await signOut(auth);location.replace("./index.html");});
 let resizeTimer=null;window.addEventListener("resize",()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(renderBoard,120);});
 
 onAuthStateChanged(auth,async(user)=>{
   if(!user)return location.replace("./index.html");
   try{
-    currentUser=user;currentProfile=await loadPlatformProfile(user);currentContext=await loadCurrentChannelContext(user,currentProfile);await initDeveloperChannelTools(user,currentProfile,currentContext);initChannelMemberApproval(currentContext);access=resolvedFeatureAccess(currentContext,"bingo");if(access==="none")throw new Error("이 채널에서 빙고를 이용할 권한이 없습니다.");
+    currentUser=user;currentProfile=await loadPlatformProfile(user);currentContext=await loadCurrentChannelContext(user,currentProfile);await initDeveloperChannelTools(user,currentProfile,currentContext);initChannelOwnerTools(user,currentProfile,currentContext);stopChannelAccessWatcher?.();stopChannelAccessWatcher=watchCurrentChannelAccess(user,currentProfile,currentContext,{feature:"bingo"});initChannelMemberApproval(currentContext);access=resolvedFeatureAccess(currentContext,"bingo");if(access==="none")throw new Error("이 채널에서 빙고를 이용할 권한이 없습니다.");
     document.getElementById("userEmail").textContent=user.email||"";document.getElementById("currentChannelName").textContent=currentContext.channel.name||"HNSITE";const roleBadge=document.getElementById("roleBadge");roleBadge.textContent=displayRole(currentContext);roleBadge.dataset.role=isDeveloper(currentProfile)?"developer":currentContext.member.role;
     await loadRoomAndBoard();await loadBoardImage();renderRoomHeader();renderBoard();if(isRoomManager()&&access==="write"&&!isClosedRoom())await loadManageUsers();loadingPanel.classList.add("hidden");roomContent.classList.remove("hidden");startRealtimeListeners();startPresence();
   }catch(error){console.error(error);if(["NO_CHANNEL","CHANNEL_NOT_FOUND","CHANNEL_INACTIVE"].includes(error.code))return location.replace("./channels.html");loadingPanel.innerHTML=`<h2>빙고방에 들어갈 수 없습니다.</h2><p>${escapeHtml(firebaseErrorMessage(error,error.message||"빙고방 정보를 불러오지 못했습니다."))}</p><a class="service-button inline-button" href="./bingo.html">빙고 목록으로 돌아가기</a>`;}

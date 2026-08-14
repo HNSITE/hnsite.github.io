@@ -19,6 +19,10 @@ import {
   initDeveloperChannelTools
 } from "./developer-channel-tools.js";
 
+import {
+  initChannelOwnerTools
+} from "./channel-owner-tools.js";
+
 
 import {
   firebaseErrorMessage
@@ -31,9 +35,12 @@ import {
   isMemberPending,
   loadCurrentChannelContext,
   loadPlatformProfile,
-  resolvedFeatureAccess
+  resolvedFeatureAccess,
+  watchCurrentChannelAccess
 } from "./channel-context.js";
 
+
+let stopChannelAccessWatcher = null;
 
 const loadingPanel =
   document.getElementById(
@@ -257,6 +264,20 @@ onAuthStateChanged(
         context
       );
 
+      initChannelOwnerTools(
+        user,
+        profile,
+        context
+      );
+
+      stopChannelAccessWatcher?.();
+      stopChannelAccessWatcher = watchCurrentChannelAccess(
+        user,
+        profile,
+        context,
+        { allowPending: true }
+      );
+
 
       /*
        * 일반 사용자의 pending 상태
@@ -437,6 +458,8 @@ onAuthStateChanged(
           "click",
           async () => {
 
+            stopChannelAccessWatcher?.();
+
             await signOut(
               auth
             );
@@ -463,6 +486,8 @@ document
   .addEventListener(
     "click",
     async () => {
+
+      stopChannelAccessWatcher?.();
 
       await signOut(
         auth
