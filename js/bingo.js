@@ -58,6 +58,10 @@ const roomSizeSelect = document.getElementById("roomSize");
 const alphabetOptions = document.getElementById("alphabetOptions");
 const alphabetModeSelect = document.getElementById("alphabetMode");
 const alphabetModeHelp = document.getElementById("alphabetModeHelp");
+const randomAlphabetPanel = document.getElementById("randomAlphabetPanel");
+const randomAlphabetGrid = document.getElementById("randomAlphabetGrid");
+const randomAlphabetCount = document.getElementById("randomAlphabetCount");
+const shuffleRandomAlphabetButton = document.getElementById("shuffleRandomAlphabetButton");
 const customAlphabetPanel = document.getElementById("customAlphabetPanel");
 const customAlphabetGrid = document.getElementById("customAlphabetGrid");
 const customAlphabetCount = document.getElementById("customAlphabetCount");
@@ -95,6 +99,7 @@ let roomSortValue = "recent";
 let favoriteRoomIds = new Set();
 let cloneSourceRoomId = "";
 let cloneCellValues = null;
+let randomAlphabetPreviewValues = [];
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const bingoAccess = () => resolvedFeatureAccess(currentContext, "bingo");
@@ -141,6 +146,32 @@ function shuffleAlphabetValues(values) {
     [next[index], next[randomIndex]] = [next[randomIndex], next[index]];
   }
   return next;
+}
+function renderRandomAlphabetPreview(values = null) {
+  const size = Number(roomSizeSelect.value) || 5;
+  const total = size * size;
+  if (Array.isArray(values) && values.length === total) {
+    randomAlphabetPreviewValues = values.map(normalizeAlphabetValue);
+  } else if (randomAlphabetPreviewValues.length !== total || randomAlphabetPreviewValues.some((value) => !normalizeAlphabetValue(value))) {
+    randomAlphabetPreviewValues = createRandomAlphabetValues(total);
+  }
+
+  randomAlphabetGrid.innerHTML = "";
+  randomAlphabetGrid.style.setProperty("--alphabet-size", size);
+  randomAlphabetCount.textContent = `${total}칸`;
+  randomAlphabetPreviewValues.forEach((value, index) => {
+    const cell = document.createElement("span");
+    cell.className = "random-alphabet-cell";
+    cell.textContent = normalizeAlphabetValue(value) || "?";
+    cell.setAttribute("aria-label", `${index + 1}번 칸 ${cell.textContent}`);
+    randomAlphabetGrid.appendChild(cell);
+  });
+}
+function resetRandomAlphabetPreview() {
+  randomAlphabetPreviewValues = [];
+  if (boardTypeSelect.value === "alphabet" && alphabetModeSelect.value === "random") {
+    renderRandomAlphabetPreview();
+  }
 }
 function extractAlphabetValues(value) { return (String(value || "").toUpperCase().match(/[A-Z]/g) || []); }
 function normalizeAlphabetValue(value) { return String(value || "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 1); }
@@ -226,10 +257,13 @@ function updateAlphabetOptions() {
   const isAlphabet = boardTypeSelect.value === "alphabet";
   const isText = boardTypeSelect.value === "text";
   const isCustom = isAlphabet && alphabetModeSelect.value === "custom";
+  const isRandom = isAlphabet && alphabetModeSelect.value === "random";
   alphabetOptions.classList.toggle("hidden", !isAlphabet);
   textOptions?.classList.toggle("hidden", !isText);
+  randomAlphabetPanel.classList.toggle("hidden", !isRandom);
   customAlphabetPanel.classList.toggle("hidden", !isCustom);
-  alphabetModeHelp.textContent = isCustom ? "직접 지정한 알파벳이 모든 참가자에게 같은 순서로 표시됩니다." : "A~Z를 섞어 배치합니다. 27칸 이상에서는 알파벳이 반복됩니다.";
+  alphabetModeHelp.textContent = isCustom ? "직접 지정한 알파벳이 모든 참가자에게 같은 순서로 표시됩니다." : "A~Z를 섞어 배치합니다. 아래 미리보기에서 원하는 배치가 나올 때까지 다시 셔플할 수 있습니다.";
+  if (isRandom) renderRandomAlphabetPreview();
   if (isCustom) renderCustomAlphabetGrid();
   if (isText) renderCustomTextGrid();
 }
@@ -438,11 +472,15 @@ function cloneRoomToForm(room) {
   if (activeOwnedRooms().length >= 5) { setMessage("활성 빙고방을 이미 5개 소유하고 있습니다. 기존 방을 종료하거나 삭제한 뒤 복제해주세요."); return; }
   cloneSourceRoomId = room.id;
   cloneCellValues = [...(roomSummaries.get(room.id)?.cellValues || [])];
+  randomAlphabetPreviewValues = [];
   document.getElementById("roomName").value = `${room.name || "빙고"} 복사`.slice(0, 30);
   roomSizeSelect.value = String(room.size || 5);
   boardTypeSelect.value = room.boardType || "number";
   alphabetModeSelect.value = room.alphabetMode === "custom" ? "custom" : "random";
   selectedParticipantUids.clear();
+  if (room.boardType === "alphabet" && room.alphabetMode !== "custom" && cloneCellValues.length === (Number(room.size) || 5) ** 2) {
+    randomAlphabetPreviewValues = [...cloneCellValues];
+  }
   updateAlphabetOptions();
   if (room.boardType === "alphabet" && room.alphabetMode === "custom") applyCustomAlphabetValues(cloneCellValues);
   if (room.boardType === "text") applyCustomTextValues(cloneCellValues);
@@ -502,12 +540,20 @@ async function createRoom(event) {
   if (![3,4,5,6,7,8,9,10].includes(size)) return setMessage("올바른 빙고판 크기를 선택해주세요.");
 
   let cellValues = [];
-  if (cloneCellValues && cloneCellValues.length === size * size && boardType !== "number") cellValues = [...cloneCellValues];
-  else if (boardType === "alphabet") {
-    cellValues = alphabetMode === "custom" ? getCustomAlphabetValues() : createRandomAlphabetValues(size * size);
-    if (!cellValues) return setMessage("알파벳 직접 지정 칸을 모두 입력해주세요.");
+  if (boardType === "alphabet") {
+    if (alphabetMode === "custom") {
+      cellValues = cloneCellValues && cloneCellValues.length === size * size ? [...cloneCellValues] : getCustomAlphabetValues();
+      if (!cellValues) return setMessage("알파벳 직접 지정 칸을 모두 입력해주세요.");
+    } else {
+      if (randomAlphabetPreviewValues.length !== size * size) renderRandomAlphabetPreview();
+      cellValues = [...randomAlphabetPreviewValues];
+    }
   } else if (boardType === "text") {
-    cellValues = getCustomTextValues();
+    if (cloneCellValues && cloneCellValues.length === size * size) {
+      cellValues = [...cloneCellValues];
+    } else {
+      cellValues = getCustomTextValues();
+    }
     if (!cellValues) return setMessage("자유 텍스트 빙고의 모든 칸을 입력해주세요.");
   }
   let autoCloseAt = null;
@@ -595,9 +641,17 @@ document.getElementById("showCreateButton").addEventListener("click", showCreate
 document.getElementById("showJoinButton").addEventListener("click", () => { setMessage(""); joinPanel.classList.remove("hidden"); createPanel.classList.add("hidden"); });
 document.getElementById("closeCreateButton").addEventListener("click", () => createPanel.classList.add("hidden"));
 document.getElementById("refreshRoomsButton").addEventListener("click", async () => { try { await refreshAll(); } catch (error) { setMessage(firebaseErrorMessage(error, "방 목록을 새로고침하지 못했습니다.")); } });
-boardTypeSelect.addEventListener("change", () => { cloneCellValues = null; updateAlphabetOptions(); });
-alphabetModeSelect.addEventListener("change", () => { cloneCellValues = null; updateAlphabetOptions(); });
-roomSizeSelect.addEventListener("change", () => { cloneCellValues = null; if (boardTypeSelect.value === "alphabet" && alphabetModeSelect.value === "custom") renderCustomAlphabetGrid(); if (boardTypeSelect.value === "text") renderCustomTextGrid(); });
+boardTypeSelect.addEventListener("change", () => { cloneCellValues = null; if (boardTypeSelect.value === "alphabet" && alphabetModeSelect.value === "random") resetRandomAlphabetPreview(); updateAlphabetOptions(); });
+alphabetModeSelect.addEventListener("change", () => { cloneCellValues = null; if (alphabetModeSelect.value === "random") resetRandomAlphabetPreview(); updateAlphabetOptions(); });
+roomSizeSelect.addEventListener("change", () => { cloneCellValues = null; randomAlphabetPreviewValues = []; if (boardTypeSelect.value === "alphabet" && alphabetModeSelect.value === "random") renderRandomAlphabetPreview(); if (boardTypeSelect.value === "alphabet" && alphabetModeSelect.value === "custom") renderCustomAlphabetGrid(); if (boardTypeSelect.value === "text") renderCustomTextGrid(); });
+shuffleRandomAlphabetButton?.addEventListener("click", () => {
+  const total = (Number(roomSizeSelect.value) || 5) ** 2;
+  if (randomAlphabetPreviewValues.length !== total) randomAlphabetPreviewValues = createRandomAlphabetValues(total);
+  else randomAlphabetPreviewValues = shuffleAlphabetValues(randomAlphabetPreviewValues);
+  cloneCellValues = null;
+  renderRandomAlphabetPreview(randomAlphabetPreviewValues);
+  setMessage("랜덤 알파벳 배치를 다시 섞었습니다.", true);
+});
 applyAlphabetBulkButton?.addEventListener("click", () => { const values = extractAlphabetValues(alphabetBulkInput?.value); if (!values.length) return setMessage("입력할 알파벳을 A~Z로 입력해주세요."); cloneCellValues = null; applyCustomAlphabetValues(values); setMessage(`${Math.min(values.length, customAlphabetInputs().length)}칸을 입력했습니다.`, true); });
 fillAlphabetRandomButton?.addEventListener("click", () => { cloneCellValues = null; applyCustomAlphabetValues(createRandomAlphabetValues(customAlphabetInputs().length)); setMessage("알파벳을 자동으로 채웠습니다.", true); });
 shuffleAlphabetButton?.addEventListener("click", () => { const inputs = customAlphabetInputs(); const current = inputs.map((input) => normalizeAlphabetValue(input.value)); const values = current.every(Boolean) ? shuffleAlphabetValues(current) : createRandomAlphabetValues(inputs.length); cloneCellValues = null; applyCustomAlphabetValues(values); setMessage("알파벳 순서를 섞었습니다.", true); });

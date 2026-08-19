@@ -105,7 +105,23 @@
               </select>
             </div>
 
-            <p id="alphabetModeHelp" class="muted alphabet-mode-help">A~Z를 섞어 배치합니다. 27칸 이상에서는 알파벳이 반복됩니다.</p>
+            <p id="alphabetModeHelp" class="muted alphabet-mode-help">A~Z를 섞어 배치합니다. 아래 미리보기에서 원하는 배치가 나올 때까지 다시 셔플할 수 있습니다.</p>
+
+            <div id="randomAlphabetPanel" class="random-alphabet-panel">
+              <div class="random-alphabet-title-row">
+                <div>
+                  <strong>랜덤 배치 미리보기</strong>
+                  <p class="muted">현재 보이는 순서가 실제 빙고판에 그대로 적용됩니다.</p>
+                </div>
+                <div class="random-alphabet-actions">
+                  <span id="randomAlphabetCount" class="list-count-text"></span>
+                  <button id="shuffleRandomAlphabetButton" class="secondary compact-button" type="button">다시 셔플</button>
+                </div>
+              </div>
+              <div class="custom-alphabet-scroll">
+                <div id="randomAlphabetGrid" class="random-alphabet-grid" aria-label="랜덤 알파벳 배치 미리보기"></div>
+              </div>
+            </div>
 
             <div id="customAlphabetPanel" class="custom-alphabet-panel hidden">
               <div class="custom-alphabet-title-row">
